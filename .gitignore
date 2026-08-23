@@ -10,3 +10,6 @@ data/
 out/
 *.onnx
 *.pt
+
+# Файлы IDE
+.idea/

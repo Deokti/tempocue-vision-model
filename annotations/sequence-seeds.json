@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "comment": "Ручная разметка стартовых позиций значков в кадре 0 записей. Координаты — центр значка в канонической системе 320x320; проверены глазами по кадрам 0 и 23 (сетка 20 px). Движущийся определён сравнением кадров 0 и 23.",
+  "sequences": {
+    "seq-darius-movement": [
+      { "championId": "Darius", "x": 61, "y": 64, "moving": true },
+      { "championId": "Zaahen", "x": 88, "y": 153, "moving": false },
+      { "championId": "Annie", "x": 124, "y": 178, "moving": false },
+      { "championId": "Jinx", "x": 226, "y": 285, "moving": false }
+    ]
+  }
+}

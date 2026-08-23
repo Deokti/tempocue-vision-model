@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "comment": "Вырезы, исключённые из чистого множества сверки отрисовки. Критерий — видимый глазами дефект в настоящем вырезе (перекрытие, рамка камеры, свечение, край карты, эффект), а не величина остатка: исключать по числам значило бы подгонять критерий под результат. Каждая запись проверена по тройке из out/render-fit (23.08.2026). Исключённые участвуют в подборе как отрицательный контроль.",
+  "exclusions": [
+    { "championId": "Tristana", "frame": "overlapped-tristana-behind-blitzcrank-12", "reason": "скрыта за Blitzcrank, виден только ободок кольца (задокументировано в README корпуса)" },
+    { "championId": "Sona", "frame": "overlapped-sona-behind-janna-09", "reason": "перекрыта Janna" },
+    { "championId": "Sivir", "frame": "overlapped-sona-behind-janna-09", "reason": "перекрыта соседним значком слева" },
+    { "championId": "Diana", "frame": "overlapped-sett-missed-08", "reason": "значок у края миникарты, срезан рамкой" },
+    { "championId": "Tryndamere", "frame": "overlapped-portraits-missed-06", "reason": "перекрытые портреты — дефект, ради которого сохранён кадр" },
+    { "championId": "Darius", "frame": "overlapped-portraits-missed-06", "reason": "перекрытые портреты" },
+    { "championId": "MonkeyKing", "frame": "overlapped-portraits-missed-06", "reason": "перекрытые портреты" },
+    { "championId": "Zaahen", "frame": "ambiguous-caitlyn-and-glowing-self-10", "reason": "свечение поверх значка, перекрыт дугой" },
+    { "championId": "Lulu", "frame": "base-structures-as-jinx-05", "reason": "виден только фрагмент значка в скоплении у базы" },
+    { "championId": "Fiddlesticks", "frame": "base-structures-as-jinx-05", "reason": "линия рамки камеры поверх значка, скопление колец" },
+    { "championId": "Ziggs", "frame": "minion-wave-as-champion-03", "reason": "перекрыт соседним значком" },
+    { "championId": "Ziggs", "frame": "static-marker-as-sion-04", "reason": "перекрыт соседним значком" },
+    { "championId": "Ziggs", "frame": "static-tower-as-champion-02", "reason": "перекрыт соседним значком и дугой чужого кольца" },
+    { "championId": "Ziggs", "frame": "overlapped-sett-missed-08", "reason": "красная дуга чужого кольца внутри диска сравнения" },
+    { "championId": "Sett", "frame": "static-tower-as-champion-01", "reason": "красное кольцо соседа внутри диска сравнения" },
+    { "championId": "Sett", "frame": "static-tower-as-champion-02", "reason": "перекрыт соседним значком" },
+    { "championId": "Morgana", "frame": "static-marker-as-sion-04", "reason": "чужой значок внутри диска сравнения" },
+    { "championId": "Morgana", "frame": "static-tower-as-champion-02", "reason": "перекрыта соседним значком" },
+    { "championId": "Sion", "frame": "tower-with-camera-line-as-amumu-07", "reason": "затемнён эффектом, не объяснён ни square, ни circle" },
+    { "championId": "Ambessa", "frame": "overlapped-tristana-behind-blitzcrank-12", "reason": "линия рамки камеры поверх значка" },
+    { "championId": "Ambessa", "frame": "teemo-and-ambessa-unknown-to-model-11", "reason": "линия рамки камеры поверх значка (та же позиция, что в кадре 12)" },
+    { "championId": "Smolder", "frame": "overlapped-tristana-behind-blitzcrank-12", "reason": "перекрыт золотым значком снизу" }
+  ]
+}

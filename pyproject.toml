@@ -12,5 +12,18 @@ dependencies = [
     "pillow>=10.0",
 ]
 
+[project.optional-dependencies]
+dev = ["ruff>=0.16"]
+
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.ruff]
+line-length = 96
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "N", "UP", "B", "SIM", "C4", "PTH", "ARG", "PL", "RUF"]
+# RUF001-003 ругаются на кириллицу в строках и комментариях, принимая её за
+# опечатку в латинице; у нас все тексты для человека по-русски намеренно.
+ignore = ["RUF001", "RUF002", "RUF003"]

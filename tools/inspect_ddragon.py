@@ -13,20 +13,18 @@
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 
 import numpy as np
 from PIL import Image
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-
-from tcvm.ddragon import champion_ids, latest_version, portrait_bgra  # noqa: E402
-from tcvm.formats import bgra_to_rgb, load_corpus  # noqa: E402
-from tcvm.matching import ICON_SIDE, crop_centered  # noqa: E402
+from tcvm.ddragon import champion_ids, latest_version, portrait_bgra
+from tcvm.formats import bgra_to_rgb, load_corpus
+from tcvm.matching import ICON_SIDE, crop_centered
 
 DEFAULT_DATA_ROOT = Path(
-    r"C:\Users\deokn\.codex\worktrees\739a\PROJECT\tests\TempoCue.Vision.Tests")
+    r"C:\Users\deokn\.codex\worktrees\739a\PROJECT\tests\TempoCue.Vision.Tests"
+)
 UPSCALE = 8
 
 
@@ -52,7 +50,8 @@ def main() -> None:
             cy = region.y + region.height // 2
             try:
                 crops.setdefault(region.champion_id, []).append(
-                    crop_centered(frame.pixels, cx, cy))
+                    crop_centered(frame.pixels, cx, cy)
+                )
             except ValueError:
                 continue  # значок у самого края кадра
 
@@ -63,22 +62,26 @@ def main() -> None:
             continue
         portrait = portrait_bgra(champion, version)
         naive = np.asarray(
-            Image.fromarray(portrait, "RGBA").resize(
-                (ICON_SIDE, ICON_SIDE), Image.BOX))
+            Image.fromarray(portrait, "RGBA").resize((ICON_SIDE, ICON_SIDE), Image.BOX)
+        )
 
         cell = ICON_SIDE * UPSCALE
-        sheet = Image.new("RGB", (cell * (len(crops[champion]) + 2) + 16, cell),
-                          (24, 24, 24))
+        sheet = Image.new("RGB", (cell * (len(crops[champion]) + 2) + 16, cell), (24, 24, 24))
         for column, crop in enumerate(crops[champion]):
             sheet.paste(upscaled(crop), (column * cell, 0))
         sheet.paste(
-            Image.fromarray(portrait[..., [2, 1, 0]], "RGB").resize((cell, cell), Image.NEAREST),
-            (len(crops[champion]) * cell + 8, 0))
+            Image.fromarray(portrait[..., [2, 1, 0]], "RGB").resize(
+                (cell, cell), Image.NEAREST
+            ),
+            (len(crops[champion]) * cell + 8, 0),
+        )
         sheet.paste(upscaled(naive[..., :4]), ((len(crops[champion]) + 1) * cell + 16, 0))
         sheet.save(args.out / f"{champion}.png")
 
-    print(f"Чемпионов в разметке корпуса: {len(crops)}, "
-          f"листов сохранено: {len(crops) - len(missing)}")
+    print(
+        f"Чемпионов в разметке корпуса: {len(crops)}, "
+        f"листов сохранено: {len(crops) - len(missing)}"
+    )
     if missing:
         print(f"НЕТ в Data Dragon {version}: {', '.join(missing)}")
     print(f"Картинки: {args.out.resolve()}")

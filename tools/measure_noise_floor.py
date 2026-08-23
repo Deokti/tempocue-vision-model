@@ -24,16 +24,14 @@ from __future__ import annotations
 import argparse
 import json
 import statistics
-import sys
+from itertools import pairwise
 from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageDraw
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-
-from tcvm.formats import ReplayFrame, bgra_to_rgb, load_corpus, load_sequences  # noqa: E402
-from tcvm.matching import (  # noqa: E402
+from tcvm.formats import ReplayFrame, bgra_to_rgb, load_corpus, load_sequences
+from tcvm.matching import (
     CENTER_SIDE,
     ICON_SIDE,
     INNER_RADIUS,
@@ -45,7 +43,8 @@ from tcvm.matching import (  # noqa: E402
 )
 
 DEFAULT_DATA_ROOT = Path(
-    r"C:\Users\deokn\.codex\worktrees\739a\PROJECT\tests\TempoCue.Vision.Tests")
+    r"C:\Users\deokn\.codex\worktrees\739a\PROJECT\tests\TempoCue.Vision.Tests"
+)
 SEEDS_PATH = Path(__file__).resolve().parents[1] / "annotations" / "sequence-seeds.json"
 SEARCH_RADIUS = 6
 ALIGN_RADIUS = 3
@@ -61,16 +60,20 @@ def upscaled(bgra: np.ndarray) -> Image.Image:
 
 
 def describe(values: list[float]) -> str:
-    return (f"медиана {statistics.median(values):.4f}, "
-            f"p95 {np.percentile(values, 95):.4f}, максимум {max(values):.4f}")
+    return (
+        f"медиана {statistics.median(values):.4f}, "
+        f"p95 {np.percentile(values, 95):.4f}, максимум {max(values):.4f}"
+    )
 
 
 def track_sequences(data_root: Path, out_root: Path) -> dict[str, list[float]]:
     """Ведёт размеченные значки по записям; возвращает расхождения по группам."""
     seeds = json.loads(SEEDS_PATH.read_text(encoding="utf-8"))["sequences"]
     grouped: dict[str, list[float]] = {
-        "static-inner": [], "static-center": [],
-        "moving-inner": [], "moving-center": [],
+        "static-inner": [],
+        "static-center": [],
+        "moving-inner": [],
+        "moving-center": [],
     }
 
     for sequence in load_sequences(data_root / "ReplaySequences"):
@@ -79,7 +82,8 @@ def track_sequences(data_root: Path, out_root: Path) -> dict[str, list[float]]:
         out = out_root / sequence.name
         out.mkdir(parents=True, exist_ok=True)
         overlay = Image.fromarray(bgra_to_rgb(sequence.frames[0]), "RGB").resize(
-            (640, 640), Image.NEAREST)
+            (640, 640), Image.NEAREST
+        )
         draw = ImageDraw.Draw(overlay)
 
         for seed in seeds[sequence.name]:
@@ -89,13 +93,14 @@ def track_sequences(data_root: Path, out_root: Path) -> dict[str, list[float]]:
             for frame in sequence.frames[1:]:
                 px, py, _ = positions[-1]
                 x, y, score = find_best_match(
-                    frame, template, INNER_MASK, px, py, SEARCH_RADIUS)
+                    frame, template, INNER_MASK, (px, py), SEARCH_RADIUS
+                )
                 positions.append((x, y, score))
                 crops.append(crop_centered(frame, x, y))
 
             kind = "moving" if seed["moving"] else "static"
             inner, center = [], []
-            for previous, current in zip(crops, crops[1:]):
+            for previous, current in pairwise(crops):
                 inner.append(1.0 - masked_ncc(previous, current, INNER_MASK))
                 center.append(1.0 - masked_ncc(previous, current, CENTER_MASK))
             grouped[f"{kind}-inner"].extend(inner)
@@ -103,20 +108,31 @@ def track_sequences(data_root: Path, out_root: Path) -> dict[str, list[float]]:
 
             travel = max(abs(x - seed["x"]) + abs(y - seed["y"]) for x, y, _ in positions)
             worst_track = min(score for _, _, score in positions[1:])
-            print(f"  {sequence.name} / {seed['championId']} ({kind}): "
-                  f"смещение до {travel} px, худший балл трекинга {worst_track:.3f}, "
-                  f"диск: {describe(inner)}")
+            print(
+                f"  {sequence.name} / {seed['championId']} ({kind}): "
+                f"смещение до {travel} px, худший балл трекинга {worst_track:.3f}, "
+                f"диск: {describe(inner)}"
+            )
 
             strip = Image.new("RGB", (ICON_SIDE * UPSCALE * len(crops), ICON_SIDE * UPSCALE))
             for column, patch in enumerate(crops):
                 strip.paste(upscaled(patch), (column * ICON_SIDE * UPSCALE, 0))
             strip.save(out / f"{seed['championId']}-track.png")
             draw.rectangle(
-                [(seed["x"] - 12) * 2, (seed["y"] - 12) * 2,
-                 (seed["x"] + 12) * 2, (seed["y"] + 12) * 2],
-                outline=(0, 255, 70), width=2)
-            draw.text(((seed["x"] - 12) * 2, (seed["y"] - 12) * 2 - 12),
-                      seed["championId"], fill=(0, 255, 70))
+                [
+                    (seed["x"] - 12) * 2,
+                    (seed["y"] - 12) * 2,
+                    (seed["x"] + 12) * 2,
+                    (seed["y"] + 12) * 2,
+                ],
+                outline=(0, 255, 70),
+                width=2,
+            )
+            draw.text(
+                ((seed["x"] - 12) * 2, (seed["y"] - 12) * 2 - 12),
+                seed["championId"],
+                fill=(0, 255, 70),
+            )
         overlay.save(out / "frame000-seeds.png")
 
     return grouped
@@ -155,13 +171,13 @@ def corpus_repeats(data_root: Path) -> list[float]:
                     try:
                         crop_a = crop_centered(frame_a.pixels, ax, ay)
                         _, _, score = find_best_match(
-                            frame_b.pixels, crop_a, INNER_MASK, bx, by, ALIGN_RADIUS)
+                            frame_b.pixels, crop_a, INNER_MASK, (bx, by), ALIGN_RADIUS
+                        )
                     except ValueError:
                         continue  # значок у самого края кадра
                     value = 1.0 - score
                     values.append(value)
-                    print(f"    {champion}: {value:.4f} "
-                          f"({frame_a.name} против {frame_b.name})")
+                    print(f"    {champion}: {value:.4f} ({frame_a.name} против {frame_b.name})")
     return values
 
 

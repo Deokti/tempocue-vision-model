@@ -62,15 +62,15 @@ def find_best_match(
     frame: np.ndarray,
     template: np.ndarray,
     mask: np.ndarray,
-    cx: int,
-    cy: int,
+    center: tuple[int, int],
     search_radius: int,
 ) -> tuple[int, int, float]:
-    """Ищет положение шаблона рядом с (cx, cy) перебором целых сдвигов.
+    """Ищет положение шаблона рядом с center перебором целых сдвигов.
 
     Возвращает центр лучшего совпадения и его балл NCC. Субпиксельные
     положения не перебираются: их остаток — часть измеряемого шума.
     """
+    cx, cy = center
     best = (cx, cy, -2.0)
     for dy in range(-search_radius, search_radius + 1):
         for dx in range(-search_radius, search_radius + 1):

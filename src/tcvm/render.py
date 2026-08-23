@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import cache
 
 import numpy as np
 from PIL import Image
@@ -32,21 +33,34 @@ RESAMPLERS = {
     "box": Image.BOX,
 }
 
-_SRGB_TO_LINEAR = None
+# Постоянные преобразования sRGB из спецификации IEC 61966-2-1: ниже излома
+# кривая линейна, выше — степенная. Числа стандартные, менять их нельзя.
+SRGB_LINEAR_CUTOFF = 0.04045
+LINEAR_SRGB_CUTOFF = 0.0031308
+SRGB_LINEAR_SLOPE = 12.92
+SRGB_OFFSET = 0.055
+SRGB_SCALE = 1.055
+SRGB_EXPONENT = 2.4
 
 
+@cache
 def _srgb_to_linear_lut() -> np.ndarray:
-    global _SRGB_TO_LINEAR
-    if _SRGB_TO_LINEAR is None:
-        x = np.arange(256, dtype=np.float64) / 255.0
-        _SRGB_TO_LINEAR = np.where(
-            x <= 0.04045, x / 12.92, ((x + 0.055) / 1.055) ** 2.4)
-    return _SRGB_TO_LINEAR
+    """Таблица 256 значений sRGB → линейный свет; считается один раз."""
+    x = np.arange(256, dtype=np.float64) / 255.0
+    return np.where(
+        x <= SRGB_LINEAR_CUTOFF,
+        x / SRGB_LINEAR_SLOPE,
+        ((x + SRGB_OFFSET) / SRGB_SCALE) ** SRGB_EXPONENT,
+    )
 
 
 def _linear_to_srgb(x: np.ndarray) -> np.ndarray:
     x = np.clip(x, 0.0, 1.0)
-    return np.where(x <= 0.0031308, x * 12.92, 1.055 * x ** (1 / 2.4) - 0.055)
+    return np.where(
+        x <= LINEAR_SRGB_CUTOFF,
+        x * SRGB_LINEAR_SLOPE,
+        SRGB_SCALE * x ** (1 / SRGB_EXPONENT) - SRGB_OFFSET,
+    )
 
 
 def _gaussian_blur(image: np.ndarray, sigma: float) -> np.ndarray:
@@ -57,22 +71,24 @@ def _gaussian_blur(image: np.ndarray, sigma: float) -> np.ndarray:
     kernel /= kernel.sum()
     padded = np.pad(image, ((radius, radius), (radius, radius), (0, 0)), mode="edge")
     blurred_rows = np.apply_along_axis(
-        lambda row: np.convolve(row, kernel, mode="valid"), 1, padded)
+        lambda row: np.convolve(row, kernel, mode="valid"), 1, padded
+    )
     return np.apply_along_axis(
-        lambda column: np.convolve(column, kernel, mode="valid"), 0, blurred_rows)
+        lambda column: np.convolve(column, kernel, mode="valid"), 0, blurred_rows
+    )
 
 
 @dataclass(frozen=True)
 class RenderParams:
     """Один вариант отрисовки; частота перебора задаётся инструментом."""
 
-    crop_frac: float      # доля стороны портрета, попадающая в значок
-    native_size: int      # родной размер значка на миникарте игрока, px
-    resampler: str        # чем портрет уменьшался до родного размера
-    gamma: str            # "srgb" — как есть, "linear" — в линейном свете
-    blur_sigma: float     # гауссово размытие в родных пикселях
+    crop_frac: float  # доля стороны портрета, попадающая в значок
+    native_size: int  # родной размер значка на миникарте игрока, px
+    resampler: str  # чем портрет уменьшался до родного размера
+    gamma: str  # "srgb" — как есть, "linear" — в линейном свете
+    blur_sigma: float  # гауссово размытие в родных пикселях
     final_resampler: str  # чем родной значок приводился к каноническим 25
-    dx: float             # субпиксельный сдвиг в канонических пикселях
+    dx: float  # субпиксельный сдвиг в канонических пикселях
     dy: float
 
 
@@ -81,7 +97,7 @@ def render_icon(portrait_bgra: np.ndarray, params: RenderParams) -> np.ndarray:
     side = portrait_bgra.shape[0]
     crop_side = max(2, round(side * params.crop_frac))
     start = (side - crop_side) // 2
-    bgr = portrait_bgra[start:start + crop_side, start:start + crop_side, :3]
+    bgr = portrait_bgra[start : start + crop_side, start : start + crop_side, :3]
 
     channels = bgr.astype(np.float32) / 255.0
     if params.gamma == "linear":
@@ -89,21 +105,22 @@ def render_icon(portrait_bgra: np.ndarray, params: RenderParams) -> np.ndarray:
 
     planes = [Image.fromarray(channels[..., i], mode="F") for i in range(3)]
     resampler = RESAMPLERS[params.resampler]
-    planes = [p.resize((params.native_size, params.native_size), resampler)
-              for p in planes]
+    planes = [p.resize((params.native_size, params.native_size), resampler) for p in planes]
     if params.blur_sigma > 0:
         native = np.stack([np.asarray(p) for p in planes], axis=-1)
         native = _gaussian_blur(native, params.blur_sigma)
-        planes = [Image.fromarray(native[..., i].astype(np.float32), mode="F")
-                  for i in range(3)]
+        planes = [
+            Image.fromarray(native[..., i].astype(np.float32), mode="F") for i in range(3)
+        ]
 
     # Аффинное отображение выхода в родные координаты: масштаб плюс сдвиг.
     scale = params.native_size / ICON_SIDE
-    coefficients = (scale, 0.0, params.dx * scale,
-                    0.0, scale, params.dy * scale)
+    coefficients = (scale, 0.0, params.dx * scale, 0.0, scale, params.dy * scale)
     final = RESAMPLERS[params.final_resampler]
-    planes = [p.transform((ICON_SIDE, ICON_SIDE), Image.AFFINE,
-                          coefficients, resample=final) for p in planes]
+    planes = [
+        p.transform((ICON_SIDE, ICON_SIDE), Image.AFFINE, coefficients, resample=final)
+        for p in planes
+    ]
 
     result = np.stack([np.asarray(p) for p in planes], axis=-1)
     if params.gamma == "linear":

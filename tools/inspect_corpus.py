@@ -13,15 +13,12 @@
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageDraw
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-
-from tcvm.formats import (  # noqa: E402
+from tcvm.formats import (
     ReplayFrame,
     ReplaySequence,
     bgra_to_rgb,
@@ -30,7 +27,8 @@ from tcvm.formats import (  # noqa: E402
 )
 
 DEFAULT_DATA_ROOT = Path(
-    r"C:\Users\deokn\.codex\worktrees\739a\PROJECT\tests\TempoCue.Vision.Tests")
+    r"C:\Users\deokn\.codex\worktrees\739a\PROJECT\tests\TempoCue.Vision.Tests"
+)
 
 UPSCALE = 8
 
@@ -41,8 +39,7 @@ def to_image(bgra: np.ndarray) -> Image.Image:
 
 def upscaled(bgra: np.ndarray, factor: int = UPSCALE) -> Image.Image:
     image = to_image(bgra)
-    return image.resize(
-        (image.width * factor, image.height * factor), Image.NEAREST)
+    return image.resize((image.width * factor, image.height * factor), Image.NEAREST)
 
 
 def annotate(frame: ReplayFrame) -> Image.Image:
@@ -54,8 +51,12 @@ def annotate(frame: ReplayFrame) -> Image.Image:
     for region in frame.labels.regions:
         is_champion = region.kind == "Champion"
         color = (0, 255, 70) if is_champion else (255, 60, 60)
-        box = [region.x * 2, region.y * 2,
-               (region.x + region.width) * 2, (region.y + region.height) * 2]
+        box = [
+            region.x * 2,
+            region.y * 2,
+            (region.x + region.width) * 2,
+            (region.y + region.height) * 2,
+        ]
         draw.rectangle(box, outline=color, width=2)
         caption = region.champion_id if is_champion else region.kind
         if caption:
@@ -73,11 +74,11 @@ def dump_frame(frame: ReplayFrame, out_root: Path) -> None:
 
     for region in frame.labels.champions if frame.labels else ():
         upscaled(frame.crop(region)).save(
-            out / "crops" / f"{region.champion_id}-{region.affiliation}.png")
+            out / "crops" / f"{region.champion_id}-{region.affiliation}.png"
+        )
     for reference in frame.references:
         side = "ally" if reference.affiliation == 0 else "enemy"
-        upscaled(reference.pixels).save(
-            out / "refs" / f"{reference.champion_id}-{side}.png")
+        upscaled(reference.pixels).save(out / "refs" / f"{reference.champion_id}-{side}.png")
 
 
 def dump_sequence(sequence: ReplaySequence, out_root: Path, step: int = 4) -> None:
@@ -98,8 +99,11 @@ def dump_sequence(sequence: ReplaySequence, out_root: Path, step: int = 4) -> No
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--data", type=Path, default=DEFAULT_DATA_ROOT,
-        help="каталог с ReplayCorpus/ и ReplaySequences/ основного репозитория")
+        "--data",
+        type=Path,
+        default=DEFAULT_DATA_ROOT,
+        help="каталог с ReplayCorpus/ и ReplaySequences/ основного репозитория",
+    )
     parser.add_argument("--out", type=Path, default=Path("out/inspect"))
     args = parser.parse_args()
 
@@ -108,16 +112,20 @@ def main() -> None:
     for frame in frames:
         champions = len(frame.labels.champions) if frame.labels else 0
         negatives = len(frame.labels.hard_negatives) if frame.labels else 0
-        print(f"  {frame.name}: чемпионов {champions}, "
-              f"hard negatives {negatives}, эталонов {len(frame.references)}")
+        print(
+            f"  {frame.name}: чемпионов {champions}, "
+            f"hard negatives {negatives}, эталонов {len(frame.references)}"
+        )
         dump_frame(frame, args.out / "frames")
 
     sequences = load_sequences(args.data / "ReplaySequences")
     print(f"Записей: {len(sequences)}")
     for sequence in sequences:
-        print(f"  {sequence.name}: кадров {len(sequence.frames)} "
-              f"за {sequence.duration_seconds:.1f} с, "
-              f"видимы: {', '.join(sequence.visible_throughout) or '—'}")
+        print(
+            f"  {sequence.name}: кадров {len(sequence.frames)} "
+            f"за {sequence.duration_seconds:.1f} с, "
+            f"видимы: {', '.join(sequence.visible_throughout) or '—'}"
+        )
         dump_sequence(sequence, args.out / "sequences")
 
     print(f"Картинки: {args.out.resolve()}")

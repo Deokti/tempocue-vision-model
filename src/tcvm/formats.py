@@ -27,11 +27,9 @@ def decode_bgra(data: bytes, width: int, height: int, stride: int) -> np.ndarray
     """Сырые байты BGRA32 → массив (высота, ширина, 4) uint8."""
     expected = stride * height
     if len(data) < expected:
-        raise ValueError(
-            f"BGRA32 короче ожидаемого: {len(data)} байт при {expected} требуемых")
+        raise ValueError(f"BGRA32 короче ожидаемого: {len(data)} байт при {expected} требуемых")
     rows = np.frombuffer(data, np.uint8, count=expected).reshape(height, stride)
-    return rows[:, : width * BYTES_PER_PIXEL] \
-        .reshape(height, width, BYTES_PER_PIXEL).copy()
+    return rows[:, : width * BYTES_PER_PIXEL].reshape(height, width, BYTES_PER_PIXEL).copy()
 
 
 def bgra_to_rgb(pixels: np.ndarray) -> np.ndarray:
@@ -147,8 +145,7 @@ def load_frame(path: Path) -> ReplayFrame:
             manifest["imageStride"],
         )
         references = tuple(
-            _reference_from_entry(archive, entry)
-            for entry in manifest.get("references", [])
+            _reference_from_entry(archive, entry) for entry in manifest.get("references", [])
         )
 
     labels_json = _load_labels_json(path)

@@ -18,11 +18,14 @@ import json
 from pathlib import Path
 
 import numpy as np
+import torch
 from PIL import Image, ImageDraw
 
 from tcvm.cdragon import patch_of
 from tcvm.ddragon import champion_ids, latest_version
 from tcvm.domain_judge import (
+    LABEL_REAL,
+    LABEL_SYNTHETIC,
     PATCH_SIDE,
     Split,
     TrainingSetup,
@@ -77,6 +80,36 @@ def synthesize_frames(count: int, assets: AssetLibrary, roster: list[str], seed:
         scene = place_entities(rng, scene, walkable_cache[scene.variant])
         frames.append(render_scene(scene, assets)[0])
     return frames
+
+
+def save_confident_sheet(model, val_x, val_y, path: Path, columns: int = 8) -> None:
+    """Патчи, по которым судья наиболее уверен: чем он выдаёт домен.
+
+    Точная диагностика вместо догадок: если в верхнем ряду видно объект или
+    текстуру, которых нет во втором, — это и есть текущая зацепка судьи.
+    """
+    model.eval()
+    with torch.no_grad():
+        logits = model(val_x)
+        probabilities = torch.softmax(logits, dim=1)
+
+    scale = 3
+    cell = PATCH_SIDE * scale
+    sheet = Image.new("RGB", (cell * columns, cell * 2 + 24), (24, 24, 24))
+    draw = ImageDraw.Draw(sheet)
+    for row, (label, caption) in enumerate(
+        ((LABEL_SYNTHETIC, "судья уверен: синтез"), (LABEL_REAL, "судья уверен: настоящее"))
+    ):
+        mask = val_y == label
+        confidence = probabilities[:, label].clone()
+        confidence[~mask] = -1.0
+        best = torch.argsort(confidence, descending=True)[:columns]
+        draw.text((4, row * (cell + 12)), caption, fill=(220, 220, 220))
+        for column, index in enumerate(best):
+            rgb = (val_x[index].numpy().transpose(1, 2, 0) * 255).astype(np.uint8)
+            image = Image.fromarray(rgb, "RGB").resize((cell, cell), Image.NEAREST)
+            sheet.paste(image, (column * cell, row * (cell + 12) + 12))
+    sheet.save(path)
 
 
 def save_patch_sheet(real: np.ndarray, synthetic: np.ndarray, path: Path) -> None:
@@ -164,7 +197,7 @@ def main() -> None:
     )
     print(f"Патчей: обучение {len(train_x)}, проверка {len(val_x)}")
 
-    _, losses, accuracies = train_judge(
+    model, losses, accuracies = train_judge(
         Split(train_x, train_y, val_x, val_y),
         TrainingSetup(epochs=args.epochs, seed=args.seed),
     )
@@ -172,6 +205,7 @@ def main() -> None:
         print(f"  эпоха {epoch:2d}: потери {loss:.4f}, точность судьи {accuracy:.3f}")
 
     save_curves(losses, accuracies, args.out / "curves.png")
+    save_confident_sheet(model, val_x, val_y, args.out / "confident.png")
     save_patch_sheet(
         cut_patches(real[0], np.random.default_rng(1)),
         cut_patches(synthetic[0], np.random.default_rng(1)),

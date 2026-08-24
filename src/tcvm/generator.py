@@ -125,8 +125,10 @@ WARD_SIGHT_MAX = 4
 # Доля видимых мелких объектов карты: лагерь убит или растение сорвано —
 # обычное дело, но большая часть карты в любой момент цела.
 MAP_OBJECT_VISIBLE_SHARE = (0.55, 0.95)
-# Варды: живые точки обзора на карте, число случайно.
-WARD_COUNT_MAX = 6
+# Варды: живые точки обзора на карте, число случайно. Розовые (контрольные)
+# ставят реже обычных зелёных.
+WARD_COUNT_MAX = 8
+PINK_WARD_SHARE = 0.25
 
 
 @dataclass(frozen=True)
@@ -157,7 +159,7 @@ class Scene:
     lateness: float  # 0 — ранняя игра, 1 — поздняя
     champions: tuple[PlacedChampion, ...]
     minion_columns: tuple[MinionColumn, ...]
-    ward_sights: tuple[tuple[int, int], ...]
+    ward_sights: tuple[tuple[int, int, str], ...]  # x, y, тип иконки варда
     turret_states: tuple[str, ...]  # имя иконки или "destroyed", по map-structures
     visible_map_objects: tuple[bool, ...]  # по объекту из map-objects.json
 
@@ -312,6 +314,7 @@ def random_scene(
         (
             int(rng.integers(EDGE_MARGIN, CANONICAL_SIDE - EDGE_MARGIN)),
             int(rng.integers(EDGE_MARGIN, CANONICAL_SIDE - EDGE_MARGIN)),
+            "ward_pink" if rng.random() < PINK_WARD_SHARE else "ward_green",
         )
         for _ in range(rng.integers(0, WARD_COUNT_MAX + 1))
     )
@@ -416,7 +419,7 @@ def render_scene(scene: Scene, assets: AssetLibrary) -> tuple[np.ndarray, dict]:
 
     sight = [(s["x"], s["y"]) for s in ally_structures if s in living]
     sight += [(int(c.x), int(c.y)) for c in scene.champions if c.ally]
-    sight += list(scene.ward_sights)
+    sight += [(x, y) for x, y, _ in scene.ward_sights]
     canvas = compose_background(
         assets.layer(scene.variant),
         CANONICAL_SIDE,
@@ -449,6 +452,9 @@ def render_scene(scene: Scene, assets: AssetLibrary) -> tuple[np.ndarray, dict]:
     for map_object, visible in zip(assets.map_objects, scene.visible_map_objects, strict=True):
         if visible:
             draw_map_object(canvas, map_object["type"], map_object["x"], map_object["y"])
+
+    for x, y, kind in scene.ward_sights:
+        draw_map_object(canvas, kind, x, y)
 
     dot_ally = tinted_icon(assets.icon("minionmapcircle"), MINION_ALLY_BGR)
     dot_enemy = tinted_icon(assets.icon("minionmapcircle"), MINION_ENEMY_BGR)

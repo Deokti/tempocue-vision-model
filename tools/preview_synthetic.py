@@ -24,10 +24,15 @@ from tcvm.matching import ICON_SIDE
 from tcvm.synthesis import (
     ALLY_RING_BGR,
     ENEMY_RING_BGR,
+    STRUCTURE_ALLY_BGR,
+    STRUCTURE_ENEMY_BGR,
+    STRUCTURE_SIDE,
     compose_background,
     load_map_layer,
+    load_minimap_icon,
     place_icon,
     ringed_icon,
+    tinted_icon,
     to_uint8_bgr,
     visibility_mask,
 )
@@ -53,6 +58,16 @@ def synthesize_like(frame, map_dir: Path, variant: str, patch: str) -> np.ndarra
         if r.affiliation == "Ally" and r.kind in ("Champion", "Tower")
     ]
     canvas = compose_background(layer, CANONICAL_SIDE, visibility_mask(CANONICAL_SIDE, sight))
+
+    # Постройки рисуются до чемпионов: значки чемпионов лежат поверх.
+    turret = load_minimap_icon(map_dir / patch / "minimap-icons", "turret_5plate")
+    for region in frame.labels.regions if frame.labels else ():
+        if region.kind != "Tower":
+            continue
+        tint = STRUCTURE_ALLY_BGR if region.affiliation == "Ally" else STRUCTURE_ENEMY_BGR
+        center = (region.x + region.width // 2, region.y + region.height // 2)
+        place_icon(canvas, tinted_icon(turret, tint), center, STRUCTURE_SIDE)
+
     for region in frame.labels.champions if frame.labels else ():
         ring = ALLY_RING_BGR if region.affiliation == "Ally" else ENEMY_RING_BGR
         icon = ringed_icon(base_circle_bgra(region.champion_id, patch), ring)

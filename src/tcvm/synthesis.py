@@ -10,9 +10,12 @@
 Фон собирается в двух версиях — открытая и под туманом войны — и смешивается
 маской зоны видимости (круги обзора с мягким краем).
 
+Постройки — тонируемые иконки интерфейса из ассетов (turret_*plate, tower,
+inhibitor, nexus): тёмная заливка со светлым контуром, цвет задаёт команда.
+
 Константы измерены по кадрам корпуса; происхождение у каждой в комментарии.
-Пока не моделируются: постройки, миньоны, пинги, свечение отзыва/телепорта,
-рамка интерфейса по краю кадра, обрезка обзора стенами.
+Пока не моделируются: миньоны, пинги, свечение отзыва/телепорта, рамка
+интерфейса по краю кадра, обрезка обзора стенами.
 """
 
 from __future__ import annotations
@@ -40,6 +43,16 @@ MAP_DIM_VISIBLE = 1.0
 SIGHT_RADIUS = 26.0
 # Мягкость края зоны видимости, подобрана глазами по кадру 01.
 SIGHT_EDGE_SIGMA = 4.0
+
+# Командные цвета построек: медиана ярких насыщенных пикселей Tower-регионов
+# разметки кадров 01, 02 и 07 (замер 24.08.2026). Иконки построек в ассетах
+# серые с альфой — игра тонирует их цветом команды.
+STRUCTURE_ALLY_BGR = (117, 124, 45)
+STRUCTURE_ENEMY_BGR = (39, 40, 145)
+# Сторона иконки башни в канонических пикселях — размер Tower-регионов разметки.
+STRUCTURE_SIDE = 16
+# Порог альфы «пиксель принадлежит иконке»: половина шкалы, край сглаживания.
+VISIBLE_ALPHA = 128
 
 # Цвета колец: медиана верхней четверти по насыщенности кольцевой полосы
 # (радиусы 10,6–12,4) кадра 08 — сглаженные с фоном пиксели отсеяны.
@@ -107,6 +120,30 @@ def compose_background(
     lit = blend(FLOOR_VISIBLE_BGR, MAP_DIM_VISIBLE)
     v = visibility[..., np.newaxis]
     return lit * v + fogged * (1.0 - v)
+
+
+def load_minimap_icon(icons_dir: Path, name: str) -> np.ndarray:
+    """Иконка интерфейса миникарты (`assets/ux/minimap/icons`) как BGRA."""
+    with Image.open(icons_dir / f"{name}.png") as image:
+        rgba = np.asarray(image.convert("RGBA"))
+    return rgba[..., [2, 1, 0, 3]].copy()
+
+
+def tinted_icon(icon_bgra: np.ndarray, tint_bgr: tuple[int, int, int]) -> np.ndarray:
+    """Тонирует серую иконку командным цветом, сохраняя её светотень.
+
+    Иконки построек — тёмная заливка со светлым контуром; нормируем яркость
+    на светлую часть (90-й перцентиль видимых пикселей), чтобы контур получил
+    измеренный командный цвет, а сердцевина осталась тёмной.
+    """
+    luminance = icon_bgra[..., :3].astype(np.float64).mean(axis=2)
+    visible = icon_bgra[..., 3] > VISIBLE_ALPHA
+    reference = np.percentile(luminance[visible], 90) if visible.any() else 255.0
+    scale = luminance[..., np.newaxis] / max(reference, 1.0)
+
+    result = icon_bgra.copy()
+    result[..., :3] = np.clip(np.array(tint_bgr) * scale, 0, 255).astype(np.uint8)
+    return result
 
 
 def ringed_icon(icon_bgra: np.ndarray, ring_bgr: tuple[int, int, int]) -> np.ndarray:

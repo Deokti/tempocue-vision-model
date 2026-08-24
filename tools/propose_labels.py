@@ -38,11 +38,14 @@ from tcvm.cdragon import base_circle_bgra, patch_of
 from tcvm.formats import ReplayFrame, bgra_to_rgb, load_corpus
 from tcvm.matching import ICON_SIDE, INNER_RADIUS, circular_mask
 from tcvm.render import RenderParams, render_icon
+from tcvm.synthesis import MAP_PLACEMENT, map_rect
 
 DEFAULT_CORPUS = Path(
     r"C:\Users\deokn\.codex\worktrees\739a\PROJECT\tests\TempoCue.Vision.Tests\ReplayCorpus"
 )
 PATCH_VERSION = "16.16.1"
+# Сторона канонического кадра приложения.
+CANONICAL_FRAME = 320
 
 # Наивная отрисовка: поиску хватает формы значка, подбор параметров не нужен
 # (тот же набор, с которого начинает tools/fit_render.py).
@@ -73,6 +76,8 @@ FLAT_PEAK = 1e-9
 SAME_SPOT = 5.0
 # Числовая мелочь: делить на нулевую дисперсию нельзя.
 VARIANCE_FLOOR = 1e-9
+# Наименьшая доля диска, при которой срезанному краем значку ещё можно верить.
+MIN_VISIBLE = 0.5
 # Вырез вокруг предложения в контрольном листе и его увеличение.
 CROP_SIDE = 33
 CROP_ZOOM = 4
@@ -89,7 +94,7 @@ class Proposal:
     x: float  # центр значка
     y: float
     score: float
-    kind: str  # "добавить" | "сдвинуть" | "проверить"
+    kind: str  # "добавить" | "сдвинуть" | "отвергнуто"
     shift: float = 0.0  # для сдвига: на сколько уехала метка
     shift_x: float = 0.0  # и в какую сторону — нужно для листа «до и после»
     shift_y: float = 0.0
@@ -102,7 +107,7 @@ class FrameProposals:
     frame: ReplayFrame
     added: list[Proposal] = field(default_factory=list)
     moved: list[Proposal] = field(default_factory=list)
-    review: list[Proposal] = field(default_factory=list)
+    rejected: list[Proposal] = field(default_factory=list)
 
 
 def ncc_map(frame_bgra: np.ndarray, template_bgr: np.ndarray, mask: np.ndarray) -> np.ndarray:
@@ -176,6 +181,71 @@ def global_best(scores: np.ndarray) -> tuple[float, float, float]:
     return float(column + half + dx), float(row + half + dy), float(scores.max())
 
 
+def clipped_best(
+    frame_bgra: np.ndarray,
+    template_bgr: np.ndarray,
+    bounds: tuple[int, int, int, int],
+    near: tuple[float, float] | None = None,
+) -> tuple[float, float, float, float]:
+    """Лучшее совпадение у края карты, где значок срезан её границей.
+
+    Сравнение по полному кругу там проваливается: часть круга приходится на
+    рамку интерфейса, а не на значок. У фонтана так стоят чемпионы после
+    смерти и возврата — целый класс, который иначе выпадает из разметки.
+    Возвращает совпадение, центр и долю видимого диска. Параметр near
+    ограничивает поиск окрестностью существующей метки.
+    """
+    left, top, right, bottom = bounds
+    half = ICON_SIDE // 2
+    if near is not None:
+        left = max(left, round(near[0]) - ALIGN_RADIUS)
+        right = min(right, round(near[0]) + ALIGN_RADIUS + 1)
+        top = max(top, round(near[1]) - ALIGN_RADIUS)
+        bottom = min(bottom, round(near[1]) + ALIGN_RADIUS + 1)
+    rows, columns = np.mgrid[0:ICON_SIDE, 0:ICON_SIDE]
+    full = float(INNER_MASK.sum())
+    masks: dict[tuple[int, int, int, int], tuple[np.ndarray, np.ndarray, float]] = {}
+    best = (-2.0, 0.0, 0.0, 0.0)
+
+    for cy in range(top, bottom):
+        for cx in range(left, right):
+            cuts = (
+                max(0, left - (cx - half)),
+                max(0, (cx + half) - (right - 1)),
+                max(0, top - (cy - half)),
+                max(0, (cy + half) - (bottom - 1)),
+            )
+            if not any(cuts):
+                continue  # круг целиком внутри карты — это дело быстрого прохода
+            if cuts not in masks:
+                inside = (
+                    (columns >= cuts[0])
+                    & (columns < ICON_SIDE - cuts[1])
+                    & (rows >= cuts[2])
+                    & (rows < ICON_SIDE - cuts[3])
+                )
+                mask = INNER_MASK & inside
+                share = mask.sum() / full
+                if share < MIN_VISIBLE:
+                    masks[cuts] = (mask, np.zeros(0), 0.0)
+                else:
+                    values = template_bgr[mask][:, :3].astype(np.float64).ravel()
+                    masks[cuts] = (mask, values - values.mean(), share)
+            mask, wanted, share = masks[cuts]
+            if share < MIN_VISIBLE:
+                continue
+            window = frame_bgra[cy - half : cy + half + 1, cx - half : cx + half + 1]
+            if window.shape[:2] != (ICON_SIDE, ICON_SIDE):
+                continue
+            seen = window[mask][:, :3].astype(np.float64).ravel()
+            seen = seen - seen.mean()
+            denominator = np.linalg.norm(seen) * np.linalg.norm(wanted)
+            score = float(seen @ wanted / denominator) if denominator else 0.0
+            if score > best[0]:
+                best = (score, float(cx), float(cy), share)
+    return best
+
+
 def icon_of(
     champion: str, patch: str, cache: dict[str, np.ndarray | None]
 ) -> np.ndarray | None:
@@ -199,6 +269,7 @@ def examine_frame(
         for region in regions
     }
     taken = list(labelled.values())
+    bounds = map_rect(CANONICAL_FRAME, MAP_PLACEMENT)
 
     for reference in frame.references:
         champion = reference.champion_id
@@ -210,6 +281,10 @@ def examine_frame(
 
         if champion in labelled:
             x, y, score = best_near(scores, labelled[champion], ALIGN_RADIUS)
+            if score < MOVE_SCORE:
+                edge = clipped_best(frame.pixels, template, bounds, labelled[champion])
+                if edge[0] > score:
+                    score, x, y = edge[0], edge[1], edge[2]
             dx = x - labelled[champion][0]
             dy = y - labelled[champion][1]
             shift = float(np.hypot(dx, dy))
@@ -220,18 +295,29 @@ def examine_frame(
             continue
 
         x, y, score = global_best(scores)
+        if score < ADD_SCORE:
+            edge_score, edge_x, edge_y, _ = clipped_best(frame.pixels, template, bounds)
+            if edge_score > score:
+                x, y, score = edge_x, edge_y, edge_score
         if any(np.hypot(x - tx, y - ty) < SAME_SPOT for tx, ty in taken):
             continue
         if score >= ADD_SCORE:
             result.added.append(Proposal(frame.name, champion, side, x, y, score, "добавить"))
             taken.append((x, y))
         elif score >= REVIEW_SCORE:
-            result.review.append(Proposal(frame.name, champion, side, x, y, score, "проверить"))
+            result.rejected.append(
+                Proposal(frame.name, champion, side, x, y, score, "отвергнуто")
+            )
     return result
 
 
 def draw_frame_sheet(found: FrameProposals, path: Path) -> None:
-    """Кадр целиком: зелёное — есть в разметке, жёлтое — добавить, оранжевое — проверить."""
+    """Кадр целиком: зелёное — есть в разметке, жёлтое — добавить, голубое — сдвинуть.
+
+    Отвергнутые кандидаты здесь не рисуются намеренно. Их «положение» — это
+    просто лучшее место, какое нашлось при заведомо низком совпадении; рисовать
+    его с именем чемпиона означало бы показывать чемпиона там, где его нет.
+    """
     zoom = 2
     image = Image.fromarray(bgra_to_rgb(found.frame.pixels), "RGB").resize(
         (320 * zoom, 320 * zoom), Image.NEAREST
@@ -241,13 +327,18 @@ def draw_frame_sheet(found: FrameProposals, path: Path) -> None:
         x = (region.x + region.width / 2) * zoom
         y = (region.y + region.height / 2) * zoom
         draw.rectangle([x - 13, y - 13, x + 13, y + 13], outline=(0, 255, 70))
-    for proposal, colour in (
-        *((p, (255, 230, 60)) for p in found.added),
-        *((p, (255, 140, 40)) for p in found.review),
-    ):
+    for proposal in found.added:
         x, y = round(proposal.x * zoom), round(proposal.y * zoom)
-        draw.ellipse([x - 14, y - 14, x + 14, y + 14], outline=colour, width=2)
-        draw.text((x + 15, y - 16), f"{proposal.champion} {proposal.score:.2f}", fill=colour)
+        draw.ellipse([x - 14, y - 14, x + 14, y + 14], outline=(255, 230, 60), width=2)
+        draw.text(
+            (x + 15, y - 16), f"{proposal.champion} {proposal.score:.2f}", fill=(255, 230, 60)
+        )
+    for proposal in found.moved:
+        x, y = round(proposal.x * zoom), round(proposal.y * zoom)
+        was_x = round((proposal.x - proposal.shift_x) * zoom)
+        was_y = round((proposal.y - proposal.shift_y) * zoom)
+        draw.line([was_x, was_y, x, y], fill=(120, 200, 255), width=2)
+        draw.ellipse([x - 4, y - 4, x + 4, y + 4], outline=(120, 200, 255), width=2)
     image.save(path)
 
 
@@ -272,7 +363,7 @@ def draw_gallery(proposals: list[Proposal], frames: dict[str, np.ndarray], path:
         x0 = (index % GALLERY_COLUMNS) * (cell + 8)
         y0 = (index // GALLERY_COLUMNS) * (cell + 30)
         sheet.paste(Image.fromarray(crop).resize((cell, cell), Image.NEAREST), (x0, y0 + 26))
-        colour = (255, 230, 60) if proposal.kind == "добавить" else (255, 140, 40)
+        colour = (255, 230, 60) if proposal.kind == "добавить" else (150, 150, 150)
         draw.text((x0, y0), f"{proposal.champion} {proposal.score:.2f}", fill=colour)
         draw.text((x0, y0 + 13), f"{proposal.kind} {proposal.frame[:18]}", fill=(170, 170, 170))
         middle = cell // 2
@@ -343,7 +434,7 @@ def write_proposals(all_found: list[FrameProposals], path: Path) -> None:
                 "frame": found.frame.name,
                 "added": [_as_dict(p) for p in found.added],
                 "moved": [_as_dict(p) for p in found.moved],
-                "review": [_as_dict(p) for p in found.review],
+                "rejected": [_as_dict(p) for p in found.rejected],
             }
             for found in all_found
         ],
@@ -376,7 +467,7 @@ def main() -> None:
     all_found: list[FrameProposals] = []
     pixels_by_frame: dict[str, np.ndarray] = {}
 
-    print("  кадр                                      есть  добавить  сдвинуть  проверить")
+    print("  кадр                                      есть  добавить  сдвинуть  отвергнуто")
     for frame in load_corpus(args.corpus):
         found = examine_frame(frame, patch, icons)
         all_found.append(found)
@@ -385,18 +476,21 @@ def main() -> None:
         existing = len(frame.labels.champions) if frame.labels else 0
         print(
             f"  {frame.name:40} {existing:5} {len(found.added):9} "
-            f"{len(found.moved):9} {len(found.review):10}"
+            f"{len(found.moved):9} {len(found.rejected):11}"
         )
 
     added = [p for f in all_found for p in f.added]
     moved = [p for f in all_found for p in f.moved]
-    review = [p for f in all_found for p in f.review]
-    draw_gallery(added + review, pixels_by_frame, args.out / "gallery.png")
+    rejected = [p for f in all_found for p in f.rejected]
+    draw_gallery(added, pixels_by_frame, args.out / "gallery.png")
+    draw_gallery(rejected, pixels_by_frame, args.out / "rejected.png")
     draw_moves(sorted(moved, key=lambda p: -p.shift), pixels_by_frame, args.out / "moves.png")
     write_proposals(all_found, args.out / "proposals.json")
 
     print()
-    print(f"Добавить чемпионов: {len(added)}; отвергнуто по низкому совпадению: {len(review)}")
+    print(
+        f"Добавить чемпионов: {len(added)}; отвергнуто по низкому совпадению: {len(rejected)}"
+    )
     if moved:
         shifts = [p.shift for p in moved]
         print(
@@ -404,7 +498,8 @@ def main() -> None:
             f"максимум {max(shifts):.1f} px"
         )
     print(f"Предложения: {(args.out / 'proposals.json').resolve()}")
-    print(f"Контрольный лист: {(args.out / 'gallery.png').resolve()}")
+    print(f"Что добавить: {(args.out / 'gallery.png').resolve()}")
+    print(f"Что отвергнуто и почему: {(args.out / 'rejected.png').resolve()}")
     print(f"Сдвиги «до и после»: {(args.out / 'moves.png').resolve()}")
     print("Корпус не изменён: применение — отдельный шаг после проверки глазами.")
 

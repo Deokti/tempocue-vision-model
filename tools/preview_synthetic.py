@@ -12,6 +12,7 @@ circle-иконок. Так сравнение бок-о-бок отвечает
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 import numpy as np
@@ -45,7 +46,15 @@ DEFAULT_CORPUS = Path(
     r"C:\Users\deokn\.codex\worktrees\739a\PROJECT\tests\TempoCue.Vision.Tests\ReplayCorpus"
 )
 DEFAULT_MAP_DIR = Path(__file__).resolve().parents[1] / "data" / "cdragon"
+STRUCTURES_PATH = Path(__file__).resolve().parents[1] / "annotations" / "map-structures.json"
 CANONICAL_SIDE = 320
+# Иконка и размер по типу постройки; размеры сняты при съёме позиций.
+STRUCTURE_ICONS = {
+    "turret": ("turret_5plate", STRUCTURE_SIDE),
+    "nexus_turret": ("tower", 16),
+    "inhibitor": ("inhibitor", 14),
+    "nexus": ("nexus", 18),
+}
 
 
 def synthesize_like(frame, map_dir: Path, variant: str, patch: str) -> np.ndarray:
@@ -64,15 +73,19 @@ def synthesize_like(frame, map_dir: Path, variant: str, patch: str) -> np.ndarra
     canvas = compose_background(layer, CANONICAL_SIDE, visibility_mask(CANONICAL_SIDE, sight))
 
     # Постройки и миньоны рисуются до чемпионов: значки чемпионов лежат поверх.
+    # Постройки — все, из канонических позиций; в кадре 01 союзники на юго-западе.
     icons_dir = map_dir / patch / "minimap-icons"
-    turret = load_minimap_icon(icons_dir, "turret_5plate")
+    structures = json.loads(STRUCTURES_PATH.read_text(encoding="utf-8"))["structures"]
+    for structure in structures:
+        icon_name, side = STRUCTURE_ICONS[structure["type"]]
+        tint = STRUCTURE_ALLY_BGR if structure["side"] == "southwest" else STRUCTURE_ENEMY_BGR
+        icon = tinted_icon(load_minimap_icon(icons_dir, icon_name), tint)
+        place_icon(canvas, icon, (structure["x"], structure["y"]), side)
+
     dot = load_minimap_icon(icons_dir, "minionmapcircle")
     for region in frame.labels.regions if frame.labels else ():
         center = (region.x + region.width // 2, region.y + region.height // 2)
-        if region.kind == "Tower":
-            tint = STRUCTURE_ALLY_BGR if region.affiliation == "Ally" else STRUCTURE_ENEMY_BGR
-            place_icon(canvas, tinted_icon(turret, tint), center, STRUCTURE_SIDE)
-        elif region.kind == "MinionWave":
+        if region.kind == "MinionWave":
             tint = MINION_ALLY_BGR if region.affiliation == "Ally" else MINION_ENEMY_BGR
             along_height = region.height >= region.width
             start = (center[0], region.y + 3) if along_height else (region.x + 3, center[1])

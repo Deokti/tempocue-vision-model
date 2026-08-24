@@ -28,6 +28,7 @@ inhibitor, nexus): тёмная заливка со светлым контур�
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -136,22 +137,61 @@ def load_darkness_mask(path: Path, side: int) -> np.ndarray:
     return grey > MASK_THRESHOLD
 
 
+@dataclass(frozen=True)
+class MapPlacement:
+    """Куда и в каком размере ложится текстура карты в каноническом кадре."""
+
+    side: int  # сторона карты в канонических пикселях
+    dx: int  # сдвиг относительно центра кадра
+    dy: int
+
+
+# Карта занимает в каноническом кадре **не всю сторону**: вокруг неё рамка
+# интерфейса. Замер — совмещение текстуры слоя с 12 кадрами корпуса по NCC
+# (внутренняя область 230x230, перебор стороны 286-302 и сдвигов ±6):
+# 10 кадров из 12 дали сторону 294 при сдвиге вниз на 2 пикселя; совпадение
+# при ней 0,64 против 0,28 при прежних 320 — разница не оставляет места
+# сомнению. Оставшиеся два кадра дали 290: это погрешность совмещения на
+# плотных кадрах, а не второй захват, потому что кайма во всех 12 кадрах
+# совпадает побитово.
+MAP_PLACEMENT = MapPlacement(294, 0, 2)
+
+
+def map_rect(side: int, placement: MapPlacement) -> tuple[int, int, int, int]:
+    """Границы области карты в кадре: (левая, верхняя, правая, нижняя)."""
+    offset = (side - placement.side) // 2
+    left, top = offset + placement.dx, offset + placement.dy
+    return left, top, left + placement.side, top + placement.side
+
+
+def place_map_texture(layer_bgra: np.ndarray, side: int, placement: MapPlacement) -> np.ndarray:
+    """Текстура карты, вписанная в кадр стороной side; вне карты — нули."""
+    scaled = Image.fromarray(layer_bgra[..., [2, 1, 0, 3]], "RGBA").resize(
+        (placement.side, placement.side), Image.BILINEAR
+    )
+    texture = np.asarray(scaled).astype(np.float64)[..., [2, 1, 0]]
+
+    canvas = np.zeros((side, side, 3), dtype=np.float64)
+    x0, y0, x1, y1 = map_rect(side, placement)
+    left, top = max(0, x0), max(0, y0)
+    right, bottom = min(side, x1), min(side, y1)
+    canvas[top:bottom, left:right] = texture[top - y0 : bottom - y0, left - x0 : right - x0]
+    return canvas
+
+
 def compose_background(
     layer_bgra: np.ndarray,
     side: int,
     visibility: np.ndarray | None = None,
     darkness: np.ndarray | None = None,
+    placement: MapPlacement = MAP_PLACEMENT,
 ) -> np.ndarray:
     """Фон миникарты стороной side (BGR float).
 
     Земля рисуется текстурой: приглушённо под туманом, в полную силу в зоне
     видимости. Поверх накладываются чёрные области карты по маске.
     """
-    layer = Image.fromarray(layer_bgra[..., [2, 1, 0, 3]], "RGBA").resize(
-        (side, side), Image.BILINEAR
-    )
-    layer_np = np.asarray(layer).astype(np.float64)
-    texture = layer_np[..., [2, 1, 0]]
+    texture = place_map_texture(layer_bgra, side, placement)
 
     fogged = texture * GROUND_DIM_FOG
     if visibility is None:
@@ -164,6 +204,19 @@ def compose_background(
     if darkness is not None:
         canvas = np.where(darkness[..., np.newaxis], np.array(DARKNESS_BGR, float), canvas)
     return canvas
+
+
+def load_map_border(path: Path) -> np.ndarray:
+    """Рамка интерфейса миникарты (annotations/map-border.png) как BGRA."""
+    with Image.open(path) as image:
+        rgba = np.asarray(image.convert("RGBA"))
+    return rgba[..., [2, 1, 0, 3]].copy()
+
+
+def draw_border(canvas_bgr: np.ndarray, border_bgra: np.ndarray) -> None:
+    """Кладёт рамку интерфейса поверх всего: в игре она рисуется последней."""
+    alpha = border_bgra[..., 3:4].astype(np.float64) / 255.0
+    canvas_bgr[:] = border_bgra[..., :3] * alpha + canvas_bgr * (1.0 - alpha)
 
 
 def load_minimap_icon(icons_dir: Path, name: str) -> np.ndarray:

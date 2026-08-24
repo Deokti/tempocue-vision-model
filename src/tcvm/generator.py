@@ -39,16 +39,20 @@ from .render import gaussian_blur
 from .synthesis import (
     ALLY_RING_BGR,
     ENEMY_RING_BGR,
+    MAP_PLACEMENT,
     MINION_ALLY_BGR,
     MINION_ENEMY_BGR,
     MINION_SPACING,
     STRUCTURE_ALLY_BGR,
     STRUCTURE_ENEMY_BGR,
     STRUCTURE_SIDE,
+    MapPlacement,
     compose_background,
+    draw_border,
     draw_map_object,
     draw_minion_column,
     load_darkness_mask,
+    load_map_border,
     load_map_layer,
     load_minimap_icon,
     place_icon,
@@ -162,6 +166,18 @@ class Scene:
     ward_sights: tuple[tuple[int, int, str], ...]  # x, y, тип иконки варда
     turret_states: tuple[str, ...]  # имя иконки или "destroyed", по map-structures
     visible_map_objects: tuple[bool, ...]  # по объекту из map-objects.json
+    placement: MapPlacement  # положение карты в кадре, из измеренных вариантов
+
+
+@dataclass(frozen=True)
+class Annotations:
+    """Пути к данным, снятым с настоящих кадров: тьма карты и рамка."""
+
+    darkness: Path | None = None
+    border: Path | None = None
+
+
+NO_ANNOTATIONS = Annotations()
 
 
 class AssetLibrary:
@@ -173,15 +189,18 @@ class AssetLibrary:
         patch: str,
         structures: list[dict],
         map_objects: list[dict] | None = None,
-        darkness_path: Path | None = None,
+        annotations: Annotations = NO_ANNOTATIONS,
     ):
         self.map_dir = map_dir
         self.patch = patch
         self.structures = structures
         self.map_objects = map_objects or []
         self.darkness = (
-            load_darkness_mask(darkness_path, CANONICAL_SIDE) if darkness_path else None
+            load_darkness_mask(annotations.darkness, CANONICAL_SIDE)
+            if annotations.darkness
+            else None
         )
+        self.border = load_map_border(annotations.border) if annotations.border else None
         self._layers: dict[str, np.ndarray] = {}
         self._icons: dict[str, np.ndarray] = {}
         self._circles: dict[str, np.ndarray | None] = {}
@@ -330,6 +349,7 @@ def random_scene(
         ward_sights=wards,
         turret_states=tuple(turret_states),
         visible_map_objects=visible_objects,
+        placement=MAP_PLACEMENT,
     )
 
 
@@ -374,6 +394,7 @@ def place_entities(rng: np.random.Generator, scene: Scene, walkable: np.ndarray)
         scene.ward_sights,
         scene.turret_states,
         scene.visible_map_objects,
+        scene.placement,
     )
 
 
@@ -425,6 +446,7 @@ def render_scene(scene: Scene, assets: AssetLibrary) -> tuple[np.ndarray, dict]:
         CANONICAL_SIDE,
         visibility_mask(CANONICAL_SIDE, sight),
         assets.darkness,
+        scene.placement,
     )
 
     for structure, state in zip(assets.structures, scene.turret_states, strict=True):
@@ -489,10 +511,14 @@ def render_scene(scene: Scene, assets: AssetLibrary) -> tuple[np.ndarray, dict]:
             }
         )
 
+    if assets.border is not None:
+        draw_border(canvas, assets.border)
+
     metadata = {
         "variant": scene.variant,
         "allySide": scene.ally_side,
         "lateness": round(scene.lateness, 3),
+        "mapSide": scene.placement.side,
         "champions": labels,
     }
     return to_uint8_bgr(canvas), metadata

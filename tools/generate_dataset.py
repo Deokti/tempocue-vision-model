@@ -21,6 +21,7 @@ from PIL import Image
 from tcvm.cdragon import patch_of
 from tcvm.ddragon import champion_ids, latest_version
 from tcvm.generator import (
+    Annotations,
     AssetLibrary,
     place_entities,
     random_scene,
@@ -33,6 +34,7 @@ ANNOTATIONS = Path(__file__).resolve().parents[1] / "annotations"
 STRUCTURES_PATH = ANNOTATIONS / "map-structures.json"
 OBJECTS_PATH = ANNOTATIONS / "map-objects.json"
 DARKNESS_PATH = ANNOTATIONS / "map-darkness.png"
+BORDER_PATH = ANNOTATIONS / "map-border.png"
 CONTACT_SHEET_COLUMNS = 4
 
 
@@ -53,7 +55,13 @@ def main() -> None:
         roster = roster[: args.roster]
     structures = json.loads(STRUCTURES_PATH.read_text(encoding="utf-8"))["structures"]
     map_objects = json.loads(OBJECTS_PATH.read_text(encoding="utf-8"))["objects"]
-    assets = AssetLibrary(args.map_dir, patch, structures, map_objects, DARKNESS_PATH)
+    assets = AssetLibrary(
+        args.map_dir,
+        patch,
+        structures,
+        map_objects,
+        Annotations(DARKNESS_PATH, BORDER_PATH),
+    )
     rng = np.random.default_rng(args.seed)
     print(f"Data Dragon {version}, чемпионов в ростере {len(roster)}, seed {args.seed}")
 

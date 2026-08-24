@@ -27,7 +27,7 @@ import torch
 from tcvm.cdragon import base_circle_bgra, patch_of
 from tcvm.detector import MATCH_DISTANCE, CenterDetector, decode_heatmap
 from tcvm.formats import ReplayFrame, bgra_to_rgb, load_corpus
-from tcvm.identity import CROP_SIDE, NO_CHAMPION, IdentityNet, as_input, choose
+from tcvm.identity import CANONICAL_CROP, NO_CHAMPION, IdentityNet, as_input, choose
 from tcvm.matching import ICON_SIDE, INNER_RADIUS, circular_mask, find_best_match
 from tcvm.render import RenderParams, render_icon
 
@@ -71,13 +71,13 @@ def frame_to_tensor(pixels_bgra: np.ndarray) -> torch.Tensor:
 
 
 def crop_at(pixels: np.ndarray, cx: float, cy: float) -> np.ndarray | None:
-    half = CROP_SIDE // 2
+    half = CANONICAL_CROP // 2
     left, top = round(cx) - half, round(cy) - half
     if left < 0 or top < 0:
         return None
-    if left + CROP_SIDE > pixels.shape[1] or top + CROP_SIDE > pixels.shape[0]:
+    if left + CANONICAL_CROP > pixels.shape[1] or top + CANONICAL_CROP > pixels.shape[0]:
         return None
-    return pixels[top : top + CROP_SIDE, left : left + CROP_SIDE]
+    return pixels[top : top + CANONICAL_CROP, left : left + CANONICAL_CROP]
 
 
 def refine(

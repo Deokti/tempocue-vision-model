@@ -29,7 +29,7 @@ import torch
 from tcvm.cdragon import base_circle_bgra, patch_of
 from tcvm.formats import ReplayFrame, bgra_to_rgb, load_corpus
 from tcvm.identity import (
-    CROP_SIDE,
+    CANONICAL_CROP,
     NO_CHAMPION,
     IdentityNet,
     as_input,
@@ -80,16 +80,16 @@ class Tally:
 
 
 def crop_at(pixels: np.ndarray, cx: float, cy: float) -> np.ndarray | None:
-    half = CROP_SIDE // 2
+    half = CANONICAL_CROP // 2
     left, top = round(cx) - half, round(cy) - half
     if (
         left < 0
         or top < 0
-        or left + CROP_SIDE > pixels.shape[1]
-        or top + CROP_SIDE > pixels.shape[0]
+        or left + CANONICAL_CROP > pixels.shape[1]
+        or top + CANONICAL_CROP > pixels.shape[0]
     ):
         return None
-    return pixels[top : top + CROP_SIDE, left : left + CROP_SIDE]
+    return pixels[top : top + CANONICAL_CROP, left : left + CANONICAL_CROP]
 
 
 def baseline_margin(
@@ -132,8 +132,8 @@ def negative_centers(
     for _ in range(NEGATIVES_PER_FRAME * 8):
         if len(spots) >= NEGATIVES_PER_FRAME:
             break
-        x = int(rng.integers(CROP_SIDE, frame.pixels.shape[1] - CROP_SIDE))
-        y = int(rng.integers(CROP_SIDE, frame.pixels.shape[0] - CROP_SIDE))
+        x = int(rng.integers(CANONICAL_CROP, frame.pixels.shape[1] - CANONICAL_CROP))
+        y = int(rng.integers(CANONICAL_CROP, frame.pixels.shape[0] - CANONICAL_CROP))
         if any(np.hypot(x - tx, y - ty) < NEGATIVE_CLEARANCE for tx, ty in taken):
             continue
         spots.append((x, y))

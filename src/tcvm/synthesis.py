@@ -144,6 +144,44 @@ def load_darkness_mask(path: Path, side: int) -> np.ndarray:
     return grey > MASK_THRESHOLD
 
 
+# Канонический кадр приложения: к нему приводится миникарта любого размера,
+# и в нём сняты все замеры ниже.
+CANONICAL_SIDE = 320
+
+
+@dataclass(frozen=True)
+class Geometry:
+    """Размер кадра, в котором рисуем, и во сколько раз он крупнее канонического.
+
+    Игрок сам выбирает размер миникарты — от ~200 до ~600 пикселей, — и значок
+    занимает в ней постоянную долю: 25 px при 320, 35 при 452, 47 при 600.
+    Поэтому переход к другому размеру — это **равномерное растяжение всей
+    геометрии**, и все измеренные в канонических пикселях величины умножаются
+    на один множитель.
+
+    Сцена при этом остаётся канонической: положения чемпионов и разметка не
+    зависят от того, в каком размере кадр отрисован. Масштаб применяется
+    только при рисовании.
+    """
+
+    side: int = CANONICAL_SIDE
+
+    @property
+    def scale(self) -> float:
+        return self.side / CANONICAL_SIDE
+
+    def at(self, value: float) -> float:
+        """Дробная величина в пикселях кадра."""
+        return value * self.scale
+
+    def px(self, value: float) -> int:
+        """Целый размер в пикселях кадра; меньше пикселя не рисуем."""
+        return max(1, round(value * self.scale))
+
+
+CANONICAL_GEOMETRY = Geometry()
+
+
 @dataclass(frozen=True)
 class MapPlacement:
     """Куда и в каком размере ложится текстура карты в каноническом кадре."""
@@ -151,6 +189,13 @@ class MapPlacement:
     side: int  # сторона карты в канонических пикселях
     dx: int  # сдвиг относительно центра кадра
     dy: int
+
+    def scaled(self, geometry: Geometry) -> MapPlacement:
+        return MapPlacement(
+            side=geometry.px(self.side),
+            dx=round(geometry.at(self.dx)),
+            dy=round(geometry.at(self.dy)),
+        )
 
 
 # Карта занимает в каноническом кадре **не всю сторону**: вокруг неё рамка
@@ -222,6 +267,13 @@ def load_map_border(path: Path) -> np.ndarray:
 
 def draw_border(canvas_bgr: np.ndarray, border_bgra: np.ndarray) -> None:
     """Кладёт рамку интерфейса поверх всего: в игре она рисуется последней."""
+    if border_bgra.shape[0] != canvas_bgr.shape[0]:
+        side = canvas_bgr.shape[0]
+        border_bgra = np.asarray(
+            Image.fromarray(border_bgra[..., [2, 1, 0, 3]], "RGBA").resize(
+                (side, side), Image.BILINEAR
+            )
+        )[..., [2, 1, 0, 3]]
     alpha = border_bgra[..., 3:4].astype(np.float64) / 255.0
     canvas_bgr[:] = border_bgra[..., :3] * alpha + canvas_bgr * (1.0 - alpha)
 
@@ -249,10 +301,13 @@ def _blend_line(canvas_bgr: np.ndarray, position: float, axis: int, span: slice)
 
 
 def draw_camera_rect(
-    canvas_bgr: np.ndarray, center: tuple[float, float], bounds: tuple[int, int, int, int]
+    canvas_bgr: np.ndarray,
+    center: tuple[float, float],
+    bounds: tuple[int, int, int, int],
+    geometry: Geometry = CANONICAL_GEOMETRY,
 ) -> None:
     """Рамка обзора камеры вокруг center, обрезанная границами карты bounds."""
-    width, height = CAMERA_RECT_SIZE
+    width, height = (geometry.px(value) for value in CAMERA_RECT_SIZE)
     left, top = center[0] - width / 2, center[1] - height / 2
     map_left, map_top, map_right, map_bottom = bounds
 
@@ -292,31 +347,43 @@ def tinted_icon(icon_bgra: np.ndarray, tint_bgr: tuple[int, int, int]) -> np.nda
     return result
 
 
+@dataclass(frozen=True)
+class MinionRun:
+    """Колонна миньонов на кадре: откуда, куда и сколько точек."""
+
+    start: tuple[int, int]
+    direction: tuple[float, float]
+    count: int
+
+
 def draw_minion_column(
     canvas_bgr: np.ndarray,
     dot_bgra: np.ndarray,
-    start_xy: tuple[int, int],
-    direction_xy: tuple[float, float],
-    count: int,
+    run: MinionRun,
+    geometry: Geometry = CANONICAL_GEOMETRY,
 ) -> None:
     """Колонна миньонов: точки с шагом MINION_SPACING вдоль направления."""
-    length = max((direction_xy[0] ** 2 + direction_xy[1] ** 2) ** 0.5, 1e-6)
-    step = (
-        direction_xy[0] / length * MINION_SPACING,
-        direction_xy[1] / length * MINION_SPACING,
-    )
-    for index in range(count):
+    length = max((run.direction[0] ** 2 + run.direction[1] ** 2) ** 0.5, 1e-6)
+    spacing = geometry.at(MINION_SPACING)
+    step = (run.direction[0] / length * spacing, run.direction[1] / length * spacing)
+    for index in range(run.count):
         center = (
-            round(start_xy[0] + step[0] * index),
-            round(start_xy[1] + step[1] * index),
+            round(run.start[0] + step[0] * index),
+            round(run.start[1] + step[1] * index),
         )
-        place_icon(canvas_bgr, dot_bgra, center, MINION_SIDE)
+        place_icon(canvas_bgr, dot_bgra, center, geometry.px(MINION_SIDE))
 
 
-def draw_map_object(canvas_bgr: np.ndarray, kind: str, x: int, y: int) -> None:
+def draw_map_object(
+    canvas_bgr: np.ndarray,
+    kind: str,
+    x: int,
+    y: int,
+    geometry: Geometry = CANONICAL_GEOMETRY,
+) -> None:
     """Рисует мелкий объект карты: квадрат растения или ромб лагеря."""
     style = MAP_OBJECT_STYLE[kind]
-    side = style["side"]
+    side = geometry.px(style["side"])
     half = side // 2
     for dy in range(-half, half + 1):
         for dx in range(-half, half + 1):

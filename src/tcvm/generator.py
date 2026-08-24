@@ -38,15 +38,20 @@ from .matching import ICON_SIDE
 from .render import gaussian_blur
 from .synthesis import (
     ALLY_RING_BGR,
+    CANONICAL_GEOMETRY,
     ENEMY_RING_BGR,
     MAP_PLACEMENT,
     MINION_ALLY_BGR,
     MINION_ENEMY_BGR,
     MINION_SPACING,
+    SIGHT_EDGE_SIGMA,
+    SIGHT_RADIUS,
     STRUCTURE_ALLY_BGR,
     STRUCTURE_ENEMY_BGR,
     STRUCTURE_SIDE,
+    Geometry,
     MapPlacement,
+    MinionRun,
     compose_background,
     draw_border,
     draw_camera_rect,
@@ -198,15 +203,25 @@ class AssetLibrary:
         self.patch = patch
         self.structures = structures
         self.map_objects = map_objects or []
+        self.darkness_path = annotations.darkness
         self.darkness = (
             load_darkness_mask(annotations.darkness, CANONICAL_SIDE)
             if annotations.darkness
             else None
         )
+        self._darkness_by_side: dict[int, np.ndarray] = {CANONICAL_SIDE: self.darkness}
         self.border = load_map_border(annotations.border) if annotations.border else None
         self._layers: dict[str, np.ndarray] = {}
         self._icons: dict[str, np.ndarray] = {}
         self._circles: dict[str, np.ndarray | None] = {}
+
+    def darkness_for(self, side: int) -> np.ndarray | None:
+        """Маска чёрных областей под нужный размер кадра; считается один раз."""
+        if self.darkness_path is None:
+            return None
+        if side not in self._darkness_by_side:
+            self._darkness_by_side[side] = load_darkness_mask(self.darkness_path, side)
+        return self._darkness_by_side[side]
 
     def layer(self, variant: str) -> np.ndarray:
         if variant not in self._layers:
@@ -445,8 +460,18 @@ def _place_subpixel(
     region[:] = bgr * alpha + region * (1.0 - alpha)
 
 
-def render_scene(scene: Scene, assets: AssetLibrary) -> tuple[np.ndarray, dict]:
-    """Сцена → (кадр BGR uint8, разметка). Разметка бесплатна по построению."""
+def render_scene(
+    scene: Scene, assets: AssetLibrary, geometry: Geometry = CANONICAL_GEOMETRY
+) -> tuple[np.ndarray, dict]:
+    """Сцена → (кадр BGR uint8, разметка). Разметка бесплатна по построению.
+
+    Кадр рисуется в размере geometry.side. Сцена при этом каноническая:
+    положения чемпионов не зависят от размера, а умножаются на масштаб в
+    момент рисования. Разметка возвращается и в канонических координатах, и в
+    координатах кадра — первые сравнимы между размерами, вторые нужны, чтобы
+    вырезать значки.
+    """
+    side = geometry.side
     ally_structures = [s for s in assets.structures if s["side"] == scene.ally_side]
     living = [
         s
@@ -457,12 +482,18 @@ def render_scene(scene: Scene, assets: AssetLibrary) -> tuple[np.ndarray, dict]:
     sight = [(s["x"], s["y"]) for s in ally_structures if s in living]
     sight += [(int(c.x), int(c.y)) for c in scene.champions if c.ally]
     sight += [(x, y) for x, y, _ in scene.ward_sights]
+    scaled_sight = [(round(geometry.at(x)), round(geometry.at(y))) for x, y in sight]
     canvas = compose_background(
         assets.layer(scene.variant),
-        CANONICAL_SIDE,
-        visibility_mask(CANONICAL_SIDE, sight),
-        assets.darkness,
-        scene.placement,
+        side,
+        visibility_mask(
+            side,
+            scaled_sight,
+            radius=geometry.at(SIGHT_RADIUS),
+            edge_sigma=geometry.at(SIGHT_EDGE_SIGMA),
+        ),
+        assets.darkness_for(side),
+        scene.placement.scaled(geometry),
     )
 
     for structure, state in zip(assets.structures, scene.turret_states, strict=True):
@@ -483,16 +514,22 @@ def render_scene(scene: Scene, assets: AssetLibrary) -> tuple[np.ndarray, dict]:
         place_icon(
             canvas,
             tinted_icon(assets.icon(icon_name), tint),
-            (structure["x"], structure["y"]),
-            STRUCTURE_ICON_SIZE[structure["type"]],
+            (round(geometry.at(structure["x"])), round(geometry.at(structure["y"]))),
+            geometry.px(STRUCTURE_ICON_SIZE[structure["type"]]),
         )
 
     for map_object, visible in zip(assets.map_objects, scene.visible_map_objects, strict=True):
         if visible:
-            draw_map_object(canvas, map_object["type"], map_object["x"], map_object["y"])
+            draw_map_object(
+                canvas,
+                map_object["type"],
+                round(geometry.at(map_object["x"])),
+                round(geometry.at(map_object["y"])),
+                geometry,
+            )
 
     for x, y, kind in scene.ward_sights:
-        draw_map_object(canvas, kind, x, y)
+        draw_map_object(canvas, kind, round(geometry.at(x)), round(geometry.at(y)), geometry)
 
     dot_ally = tinted_icon(assets.icon("minionmapcircle"), MINION_ALLY_BGR)
     dot_enemy = tinted_icon(assets.icon("minionmapcircle"), MINION_ENEMY_BGR)
@@ -500,9 +537,12 @@ def render_scene(scene: Scene, assets: AssetLibrary) -> tuple[np.ndarray, dict]:
         draw_minion_column(
             canvas,
             dot_ally if column.ally else dot_enemy,
-            (column.x, column.y),
-            column.direction,
-            column.count,
+            MinionRun(
+                start=(round(geometry.at(column.x)), round(geometry.at(column.y))),
+                direction=column.direction,
+                count=column.count,
+            ),
+            geometry,
         )
 
     labels = []
@@ -516,18 +556,31 @@ def render_scene(scene: Scene, assets: AssetLibrary) -> tuple[np.ndarray, dict]:
             blurred = gaussian_blur(icon[..., :3].astype(np.float64), champion.blur_sigma)
             icon = icon.copy()
             icon[..., :3] = np.clip(blurred + 0.5, 0, 255).astype(np.uint8)
-        _place_subpixel(canvas, icon, champion.x, champion.y, ICON_SIDE)
+        _place_subpixel(
+            canvas,
+            icon,
+            geometry.at(champion.x),
+            geometry.at(champion.y),
+            geometry.px(ICON_SIDE),
+        )
         labels.append(
             {
                 "championId": champion.champion_id,
                 "x": round(champion.x, 2),
                 "y": round(champion.y, 2),
+                "frameX": round(geometry.at(champion.x), 2),
+                "frameY": round(geometry.at(champion.y), 2),
                 "affiliation": "Ally" if champion.ally else "Enemy",
                 "moving": champion.moving,
             }
         )
 
-    draw_camera_rect(canvas, scene.camera_center, map_rect(CANONICAL_SIDE, scene.placement))
+    draw_camera_rect(
+        canvas,
+        (geometry.at(scene.camera_center[0]), geometry.at(scene.camera_center[1])),
+        map_rect(side, scene.placement.scaled(geometry)),
+        geometry,
+    )
 
     if assets.border is not None:
         draw_border(canvas, assets.border)
@@ -537,6 +590,7 @@ def render_scene(scene: Scene, assets: AssetLibrary) -> tuple[np.ndarray, dict]:
         "allySide": scene.ally_side,
         "lateness": round(scene.lateness, 3),
         "mapSide": scene.placement.side,
+        "frameSide": side,
         "champions": labels,
     }
     return to_uint8_bgr(canvas), metadata

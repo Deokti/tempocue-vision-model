@@ -24,10 +24,16 @@ from dataclasses import dataclass
 import numpy as np
 import torch
 from torch import nn
+from torch.nn import functional as torch_functional
 
-# Сторона выреза: значок занимает 25 px, остаток даёт окружение и терпимость
-# к неточному центру от детектора (tools/generate_crops.py).
-CROP_SIDE = 32
+# Вырез берётся в канонических пикселях: значок занимает 25 px, остаток даёт
+# окружение и терпимость к неточному центру от детектора.
+CANONICAL_CROP = 32
+# Вход сети. Он фиксирован, а резкость вырезов — нет: игрок выбирает размер
+# миникарты от ~200 до ~600, и значок несёт от 16 до 47 настоящих пикселей.
+# Вход взят по верхнему краю диапазона (при карте 600 вырез занимает 60 px),
+# чтобы у тех, у кого карта большая, детали не выбрасывались повторно.
+INPUT_SIDE = 64
 # Длина вектора, в который ствол переводит вырез. Столько же будет у вложения.
 EMBEDDING_SIZE = 128
 # Метка отсутствия чемпиона; в обучении это отдельный класс с индексом 0.
@@ -56,7 +62,7 @@ class IdentityMetrics:
 
 
 class IdentityNet(nn.Module):
-    """Вырез 32x32 → вектор длины EMBEDDING_SIZE → баллы по классам."""
+    """Вырез INPUT_SIDE → вектор длины EMBEDDING_SIZE → баллы по классам."""
 
     def __init__(self, classes: int, width: int = 32):
         super().__init__()
@@ -69,12 +75,12 @@ class IdentityNet(nn.Module):
             )
 
         self.trunk = nn.Sequential(
-            block(3, width, 1),  # 32
-            block(width, width * 2, 2),  # 16
+            block(3, width, 1),  # 64
+            block(width, width * 2, 2),  # 32
             block(width * 2, width * 2, 1),
-            block(width * 2, width * 4, 2),  # 8
+            block(width * 2, width * 4, 2),  # 16
             block(width * 4, width * 4, 1),
-            block(width * 4, width * 8, 2),  # 4
+            block(width * 4, width * 8, 2),  # 8
             nn.AdaptiveAvgPool2d(1),
             nn.Flatten(),
             nn.Linear(width * 8, EMBEDDING_SIZE),
@@ -90,8 +96,19 @@ class IdentityNet(nn.Module):
 
 
 def as_input(crops: torch.Tensor) -> torch.Tensor:
-    """Вырезы (N, 32, 32, 3) uint8 → тензор (N, 3, 32, 32) в долях единицы."""
-    return crops.permute(0, 3, 1, 2).float() / BYTE_SCALE
+    """Вырезы (N, H, W, 3) uint8 → тензор (N, 3, INPUT_SIDE, INPUT_SIDE).
+
+    Вырез любого размера приводится ко входу сети. Резкость при этом остаётся
+    той, какую дала игра: вырез с большой карты растягивается слабо и остаётся
+    подробным, с маленькой — растягивается сильно и остаётся мутным. Сеть
+    видит одинаковый размер и разную резкость, а не наоборот.
+    """
+    batch = crops.permute(0, 3, 1, 2).float() / BYTE_SCALE
+    if batch.shape[-1] != INPUT_SIDE or batch.shape[-2] != INPUT_SIDE:
+        batch = torch_functional.interpolate(
+            batch, size=(INPUT_SIDE, INPUT_SIDE), mode="bilinear", align_corners=False
+        )
+    return batch
 
 
 def build_vocabulary(champions: list[str]) -> list[str]:

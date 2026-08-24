@@ -62,7 +62,14 @@ class DetectionMetrics:
 
 
 def make_heatmap(centers: list[tuple[float, float]]) -> np.ndarray:
-    """Карта центров (1, 80, 80) с гауссовыми буграми в позициях значков."""
+    """Карта центров (1, 80, 80) с гауссовыми буграми в позициях значков.
+
+    Ключевая деталь: ближайшая к центру клетка получает **ровно 1,0**. Центр
+    почти никогда не попадает в середину клетки, и без этого максимум бугра
+    оказывался около 0,9 — а положительной в фокальной потере считается только
+    клетка со значением 1,0. Получалось обучение вовсе без положительных
+    примеров: потери падали, полнота оставалась нулевой.
+    """
     heatmap = np.zeros((1, HEATMAP_SIDE, HEATMAP_SIDE), dtype=np.float32)
     radius = int(3 * GAUSSIAN_SIGMA)
     for x, y in centers:
@@ -74,6 +81,9 @@ def make_heatmap(centers: list[tuple[float, float]]) -> np.ndarray:
                 distance = (gx - cx) ** 2 + (gy - cy) ** 2
                 value = np.exp(-distance / (2 * GAUSSIAN_SIGMA**2))
                 heatmap[0, gy, gx] = max(heatmap[0, gy, gx], value)
+        peak_x = min(max(round(cx), 0), HEATMAP_SIDE - 1)
+        peak_y = min(max(round(cy), 0), HEATMAP_SIDE - 1)
+        heatmap[0, peak_y, peak_x] = 1.0
     return heatmap
 
 

@@ -49,12 +49,14 @@ from .synthesis import (
     MapPlacement,
     compose_background,
     draw_border,
+    draw_camera_rect,
     draw_map_object,
     draw_minion_column,
     load_darkness_mask,
     load_map_border,
     load_map_layer,
     load_minimap_icon,
+    map_rect,
     place_icon,
     ringed_icon,
     tinted_icon,
@@ -167,6 +169,7 @@ class Scene:
     turret_states: tuple[str, ...]  # имя иконки или "destroyed", по map-structures
     visible_map_objects: tuple[bool, ...]  # по объекту из map-objects.json
     placement: MapPlacement  # положение карты в кадре, из измеренных вариантов
+    camera_center: tuple[float, float]  # середина рамки обзора камеры
 
 
 @dataclass(frozen=True)
@@ -350,6 +353,7 @@ def random_scene(
         turret_states=tuple(turret_states),
         visible_map_objects=visible_objects,
         placement=MAP_PLACEMENT,
+        camera_center=_sample_camera_center(rng),
     )
 
 
@@ -395,6 +399,7 @@ def place_entities(rng: np.random.Generator, scene: Scene, walkable: np.ndarray)
         scene.turret_states,
         scene.visible_map_objects,
         scene.placement,
+        scene.camera_center,
     )
 
 
@@ -404,6 +409,17 @@ STRUCTURE_ICON_SIZE = {
     "inhibitor": 14,
     "nexus": 18,
 }
+
+
+def _sample_camera_center(rng: np.random.Generator) -> tuple[float, float]:
+    """Середина рамки обзора: куда игрок смотрит.
+
+    Положение берётся равномерно по кадру, а не по области карты: в игре
+    рамка свободно уходит за край и обрезается, и такие кадры в корпусе есть.
+    Связь «камера смотрит на своего чемпиона» не воспроизводится — по 12
+    кадрам её не измерить, а выдумывать связь хуже, чем её не иметь.
+    """
+    return float(rng.uniform(0, CANONICAL_SIDE)), float(rng.uniform(0, CANONICAL_SIDE))
 
 
 def _place_subpixel(
@@ -510,6 +526,8 @@ def render_scene(scene: Scene, assets: AssetLibrary) -> tuple[np.ndarray, dict]:
                 "moving": champion.moving,
             }
         )
+
+    draw_camera_rect(canvas, scene.camera_center, map_rect(CANONICAL_SIDE, scene.placement))
 
     if assets.border is not None:
         draw_border(canvas, assets.border)

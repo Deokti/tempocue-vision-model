@@ -37,9 +37,16 @@ from PIL import Image
 from .render import gaussian_blur
 
 # Устройство фона измерено по кадрам корпуса (24.08.2026). Земля рисуется
-# самой текстурой слоя: под туманом войны с множителем 0,29, в зоне видимости
-# — ровно 1,0 (открытая карта не затемняется вообще).
-GROUND_DIM_FOG = 0.29
+# самой текстурой слоя: под туманом войны приглушённо, в зоне видимости —
+# ровно 1,0 (открытая карта не затемняется вообще).
+#
+# Множитель тумана уточнён по распределению отношения «кадр к текстуре» на
+# 605 537 пикселях земли двенадцати кадров: распределение двугорбое, и горбы
+# стоят ровно там, где им положено — 1,01 для освещённой земли и 0,36 для
+# тумана. Прежнее значение 0,29 делало туман заметно темнее настоящего;
+# ошибка пряталась за тем, что средняя яркость кадра всё равно сходилась —
+# её вытягивала избыточная чернота, которой не было в игре.
+GROUND_DIM_FOG = 0.36
 GROUND_DIM_VISIBLE = 1.0
 
 # Чёрные области карты (стены, скалы, часть кустов) — самостоятельные данные:
@@ -217,6 +224,48 @@ def draw_border(canvas_bgr: np.ndarray, border_bgra: np.ndarray) -> None:
     """Кладёт рамку интерфейса поверх всего: в игре она рисуется последней."""
     alpha = border_bgra[..., 3:4].astype(np.float64) / 255.0
     canvas_bgr[:] = border_bgra[..., :3] * alpha + canvas_bgr * (1.0 - alpha)
+
+
+# Рамка обзора камеры: белый прямоугольник в один пиксель, который игрок
+# двигает по карте. Размер замерен по кадрам корпуса, где рамка видна целиком
+# (6 кадров из 12): ширина 107-109, высота 45-46 — берутся медианы. В
+# остальных шести рамка обрезана краем карты, и это тоже воспроизводится.
+# Линия чисто белая (255,255,255) толщиной в пиксель; соседний пиксель светлее
+# фона — это сглаживание дробного положения, поэтому линия рисуется с
+# субпиксельным весом, а не по целым координатам.
+CAMERA_RECT_SIZE = (108, 45)
+CAMERA_LINE_BGR = (255, 255, 255)
+
+
+def _blend_line(canvas_bgr: np.ndarray, position: float, axis: int, span: slice) -> None:
+    """Линия белого цвета с дробным положением: вес делится между соседями."""
+    low = int(np.floor(position))
+    weight_high = position - low
+    for index, weight in ((low, 1.0 - weight_high), (low + 1, weight_high)):
+        if weight <= 0.0 or not 0 <= index < canvas_bgr.shape[1 - axis]:
+            continue
+        strip = canvas_bgr[index, span] if axis == 0 else canvas_bgr[span, index]
+        strip[:] = np.array(CAMERA_LINE_BGR, float) * weight + strip * (1.0 - weight)
+
+
+def draw_camera_rect(
+    canvas_bgr: np.ndarray, center: tuple[float, float], bounds: tuple[int, int, int, int]
+) -> None:
+    """Рамка обзора камеры вокруг center, обрезанная границами карты bounds."""
+    width, height = CAMERA_RECT_SIZE
+    left, top = center[0] - width / 2, center[1] - height / 2
+    map_left, map_top, map_right, map_bottom = bounds
+
+    inside_x = slice(max(map_left, int(left)), min(map_right, int(left + width) + 1))
+    inside_y = slice(max(map_top, int(top)), min(map_bottom, int(top + height) + 1))
+    if inside_x.start >= inside_x.stop or inside_y.start >= inside_y.stop:
+        return
+    for edge in (top, top + height):
+        if map_top <= edge < map_bottom - 1:
+            _blend_line(canvas_bgr, edge, 0, inside_x)
+    for edge in (left, left + width):
+        if map_left <= edge < map_right - 1:
+            _blend_line(canvas_bgr, edge, 1, inside_y)
 
 
 def load_minimap_icon(icons_dir: Path, name: str) -> np.ndarray:

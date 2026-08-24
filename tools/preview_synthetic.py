@@ -24,10 +24,14 @@ from tcvm.matching import ICON_SIDE
 from tcvm.synthesis import (
     ALLY_RING_BGR,
     ENEMY_RING_BGR,
+    MINION_ALLY_BGR,
+    MINION_ENEMY_BGR,
+    MINION_SPACING,
     STRUCTURE_ALLY_BGR,
     STRUCTURE_ENEMY_BGR,
     STRUCTURE_SIDE,
     compose_background,
+    draw_minion_column,
     load_map_layer,
     load_minimap_icon,
     place_icon,
@@ -59,14 +63,22 @@ def synthesize_like(frame, map_dir: Path, variant: str, patch: str) -> np.ndarra
     ]
     canvas = compose_background(layer, CANONICAL_SIDE, visibility_mask(CANONICAL_SIDE, sight))
 
-    # Постройки рисуются до чемпионов: значки чемпионов лежат поверх.
-    turret = load_minimap_icon(map_dir / patch / "minimap-icons", "turret_5plate")
+    # Постройки и миньоны рисуются до чемпионов: значки чемпионов лежат поверх.
+    icons_dir = map_dir / patch / "minimap-icons"
+    turret = load_minimap_icon(icons_dir, "turret_5plate")
+    dot = load_minimap_icon(icons_dir, "minionmapcircle")
     for region in frame.labels.regions if frame.labels else ():
-        if region.kind != "Tower":
-            continue
-        tint = STRUCTURE_ALLY_BGR if region.affiliation == "Ally" else STRUCTURE_ENEMY_BGR
         center = (region.x + region.width // 2, region.y + region.height // 2)
-        place_icon(canvas, tinted_icon(turret, tint), center, STRUCTURE_SIDE)
+        if region.kind == "Tower":
+            tint = STRUCTURE_ALLY_BGR if region.affiliation == "Ally" else STRUCTURE_ENEMY_BGR
+            place_icon(canvas, tinted_icon(turret, tint), center, STRUCTURE_SIDE)
+        elif region.kind == "MinionWave":
+            tint = MINION_ALLY_BGR if region.affiliation == "Ally" else MINION_ENEMY_BGR
+            along_height = region.height >= region.width
+            start = (center[0], region.y + 3) if along_height else (region.x + 3, center[1])
+            direction = (0.0, 1.0) if along_height else (1.0, 0.0)
+            count = max(region.width, region.height) // MINION_SPACING + 1
+            draw_minion_column(canvas, tinted_icon(dot, tint), start, direction, count)
 
     for region in frame.labels.champions if frame.labels else ():
         ring = ALLY_RING_BGR if region.affiliation == "Ally" else ENEMY_RING_BGR

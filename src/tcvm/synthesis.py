@@ -13,9 +13,12 @@
 Постройки — тонируемые иконки интерфейса из ассетов (turret_*plate, tower,
 inhibitor, nexus): тёмная заливка со светлым контуром, цвет задаёт команда.
 
+Миньоны — колонны тонированных точек minionmapcircle вдоль линий.
+
 Константы измерены по кадрам корпуса; происхождение у каждой в комментарии.
-Пока не моделируются: миньоны, пинги, свечение отзыва/телепорта, рамка
-интерфейса по краю кадра, обрезка обзора стенами.
+Пока не моделируются: пинги, свечение отзыва/телепорта, рамка интерфейса по
+краю кадра, обрезка обзора стенами, канонические позиции построек (в превью
+постройки стоят только там, где размечены).
 """
 
 from __future__ import annotations
@@ -53,6 +56,15 @@ STRUCTURE_ENEMY_BGR = (39, 40, 145)
 STRUCTURE_SIDE = 16
 # Порог альфы «пиксель принадлежит иконке»: половина шкалы, край сглаживания.
 VISIBLE_ALPHA = 128
+
+# Миньоны: белая точка minionmapcircle из ассетов, тонируется цветом команды.
+# Цвета — медианы насыщенных пикселей волн: союзные из кадра 03, вражеские из
+# lag-01 (замер 24.08.2026); диаметр точки ~5 px по зуму кадра 03.
+MINION_ALLY_BGR = (201, 142, 71)
+MINION_ENEMY_BGR = (35, 35, 126)
+MINION_SIDE = 5
+# Шаг точек в колонне волны: точки соприкасаются (зум кадра 03).
+MINION_SPACING = 6
 
 # Цвета колец: медиана верхней четверти по насыщенности кольцевой полосы
 # (радиусы 10,6–12,4) кадра 08 — сглаженные с фоном пиксели отсеяны.
@@ -144,6 +156,27 @@ def tinted_icon(icon_bgra: np.ndarray, tint_bgr: tuple[int, int, int]) -> np.nda
     result = icon_bgra.copy()
     result[..., :3] = np.clip(np.array(tint_bgr) * scale, 0, 255).astype(np.uint8)
     return result
+
+
+def draw_minion_column(
+    canvas_bgr: np.ndarray,
+    dot_bgra: np.ndarray,
+    start_xy: tuple[int, int],
+    direction_xy: tuple[float, float],
+    count: int,
+) -> None:
+    """Колонна миньонов: точки с шагом MINION_SPACING вдоль направления."""
+    length = max((direction_xy[0] ** 2 + direction_xy[1] ** 2) ** 0.5, 1e-6)
+    step = (
+        direction_xy[0] / length * MINION_SPACING,
+        direction_xy[1] / length * MINION_SPACING,
+    )
+    for index in range(count):
+        center = (
+            round(start_xy[0] + step[0] * index),
+            round(start_xy[1] + step[1] * index),
+        )
+        place_icon(canvas_bgr, dot_bgra, center, MINION_SIDE)
 
 
 def ringed_icon(icon_bgra: np.ndarray, ring_bgr: tuple[int, int, int]) -> np.ndarray:

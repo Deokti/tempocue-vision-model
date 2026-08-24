@@ -29,6 +29,7 @@ from tcvm.synthesis import (
     place_icon,
     ringed_icon,
     to_uint8_bgr,
+    visibility_mask,
 )
 
 DEFAULT_CORPUS = Path(
@@ -39,9 +40,19 @@ CANONICAL_SIDE = 320
 
 
 def synthesize_like(frame, map_dir: Path, variant: str, patch: str) -> np.ndarray:
-    """Собирает синтетический кадр по разметке настоящего."""
+    """Собирает синтетический кадр по разметке настоящего.
+
+    Источники обзора — союзные чемпионы и союзные башни из той же разметки:
+    зона видимости в синтезе повторяет настоящую лишь приблизительно, но
+    сравнение бок-о-бок остаётся честным по устройству.
+    """
     layer = load_map_layer(map_dir / patch / "map11", variant)
-    canvas = compose_background(layer, CANONICAL_SIDE)
+    sight = [
+        (r.x + r.width // 2, r.y + r.height // 2)
+        for r in (frame.labels.regions if frame.labels else ())
+        if r.affiliation == "Ally" and r.kind in ("Champion", "Tower")
+    ]
+    canvas = compose_background(layer, CANONICAL_SIDE, visibility_mask(CANONICAL_SIDE, sight))
     for region in frame.labels.champions if frame.labels else ():
         ring = ALLY_RING_BGR if region.affiliation == "Ally" else ENEMY_RING_BGR
         icon = ringed_icon(base_circle_bgra(region.champion_id, patch), ring)

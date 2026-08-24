@@ -63,7 +63,7 @@ def _linear_to_srgb(x: np.ndarray) -> np.ndarray:
     )
 
 
-def _gaussian_blur(image: np.ndarray, sigma: float) -> np.ndarray:
+def gaussian_blur(image: np.ndarray, sigma: float) -> np.ndarray:
     """Разделяемая гауссова свёртка по двум осям; Pillow не умеет float-каналы."""
     radius = max(1, int(3.0 * sigma + 0.5))
     offsets = np.arange(-radius, radius + 1, dtype=np.float64)
@@ -108,7 +108,7 @@ def render_icon(portrait_bgra: np.ndarray, params: RenderParams) -> np.ndarray:
     planes = [p.resize((params.native_size, params.native_size), resampler) for p in planes]
     if params.blur_sigma > 0:
         native = np.stack([np.asarray(p) for p in planes], axis=-1)
-        native = _gaussian_blur(native, params.blur_sigma)
+        native = gaussian_blur(native, params.blur_sigma)
         planes = [
             Image.fromarray(native[..., i].astype(np.float32), mode="F") for i in range(3)
         ]

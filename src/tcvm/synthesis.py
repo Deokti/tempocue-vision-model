@@ -7,9 +7,12 @@
 измеренной цепочкой (bilinear, смешение в sRGB — docs/render-verification.md)
 и наложенная по альфе.
 
+Фон собирается в двух версиях — открытая и под туманом войны — и смешивается
+маской зоны видимости (круги обзора с мягким краем).
+
 Константы измерены по кадрам корпуса; происхождение у каждой в комментарии.
-Пока не моделируются: зона видимости (затемнение однородное), свечение,
-пинги, миньоны, постройки, рамка интерфейса по краю кадра.
+Пока не моделируются: постройки, миньоны, пинги, свечение отзыва/телепорта,
+рамка интерфейса по краю кадра, обрезка обзора стенами.
 """
 
 from __future__ import annotations
@@ -19,12 +22,24 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
+from .render import gaussian_blur
+
 # Медианы по кадру static-tower-as-champion-01 (замер 24.08.2026):
-# цвет пола — медиана пикселей кадра там, где слой карты прозрачен.
-FLOOR_BGR = (27, 28, 16)
-# Затемнение карты: отношение яркости стен настоящего кадра к яркости
-# текстуры (40/112, 50/153, 40/144 ≈ один множитель по трём каналам).
-MAP_DIM = 0.33
+# цвет пола — медиана пикселей кадра там, где слой карты прозрачен,
+# отдельно под туманом и в зоне видимости (порог по яркости).
+FLOOR_FOG_BGR = (27, 28, 16)
+FLOOR_VISIBLE_BGR = (44, 56, 52)
+# Затемнение слоя карты: отношение яркости стен настоящего кадра к яркости
+# текстуры. Под туманом три канала дают один множитель ~0,33; в зоне
+# видимости множитель ровно 1,0 — открытая карта рисуется без затемнения.
+MAP_DIM_FOG = 0.33
+MAP_DIM_VISIBLE = 1.0
+
+# Радиус обзора в канонических пикселях: обзор чемпиона ~1200 игровых
+# единиц при стороне карты ~15000 единиц и канонических 320 px.
+SIGHT_RADIUS = 26.0
+# Мягкость края зоны видимости, подобрана глазами по кадру 01.
+SIGHT_EDGE_SIGMA = 4.0
 
 # Цвета колец: медиана верхней четверти по насыщенности кольцевой полосы
 # (радиусы 10,6–12,4) кадра 08 — сглаженные с фоном пиксели отсеяны.
@@ -44,13 +59,37 @@ def load_map_layer(map_dir: Path, variant: str) -> np.ndarray:
     return rgba[..., [2, 1, 0, 3]].copy()
 
 
+def visibility_mask(
+    side: int,
+    sight_sources: list[tuple[int, int]],
+    radius: float = SIGHT_RADIUS,
+    edge_sigma: float = SIGHT_EDGE_SIGMA,
+) -> np.ndarray:
+    """Маска зоны видимости [0..1]: круги обзора с мягким краем.
+
+    Игровая логика обзора (стены, кусты) не воспроизводится — для синтетики
+    важна правдоподобная текстура пятен света, а не честная симуляция.
+    """
+    yy, xx = np.mgrid[0:side, 0:side].astype(np.float64)
+    mask = np.zeros((side, side))
+    for cx, cy in sight_sources:
+        distance = np.sqrt((yy - cy) ** 2 + (xx - cx) ** 2)
+        mask = np.maximum(mask, distance <= radius)
+    if edge_sigma > 0:
+        mask = gaussian_blur(mask[..., np.newaxis], edge_sigma)[..., 0]
+    return np.clip(mask, 0.0, 1.0)
+
+
 def compose_background(
     layer_bgra: np.ndarray,
     side: int,
-    floor_bgr: tuple[int, int, int] = FLOOR_BGR,
-    dim: float = MAP_DIM,
+    visibility: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Фон миникарты стороной side: пол + слой карты + затемнение (BGR float)."""
+    """Фон миникарты стороной side (BGR float).
+
+    Две версии — открытая (светлый пол, текстура как есть) и под туманом
+    (тёмный пол, текстура на треть яркости) — смешиваются маской видимости.
+    """
     layer = Image.fromarray(layer_bgra[..., [2, 1, 0, 3]], "RGBA").resize(
         (side, side), Image.BILINEAR
     )
@@ -58,9 +97,16 @@ def compose_background(
     alpha = layer_np[..., 3:4] / 255.0
     layer_bgr = layer_np[..., [2, 1, 0]]
 
-    floor = np.full((side, side, 3), floor_bgr, dtype=np.float64)
-    # Пол уже измерен в затемнённом виде, поэтому множитель — только на слой.
-    return floor * (1.0 - alpha) + layer_bgr * dim * alpha
+    def blend(floor_bgr, dim):
+        floor = np.full((side, side, 3), floor_bgr, dtype=np.float64)
+        return floor * (1.0 - alpha) + layer_bgr * dim * alpha
+
+    fogged = blend(FLOOR_FOG_BGR, MAP_DIM_FOG)
+    if visibility is None:
+        return fogged
+    lit = blend(FLOOR_VISIBLE_BGR, MAP_DIM_VISIBLE)
+    v = visibility[..., np.newaxis]
+    return lit * v + fogged * (1.0 - v)
 
 
 def ringed_icon(icon_bgra: np.ndarray, ring_bgr: tuple[int, int, int]) -> np.ndarray:

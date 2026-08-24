@@ -34,8 +34,12 @@ HEATMAP_SIDE = CANONICAL_SIDE // STRIDE
 # Радиус гауссова бугра в клетках карты: значок 25 px при шаге 4 — это ~6,3
 # клетки, треть радиуса даёт бугор, покрывающий ядро значка.
 GAUSSIAN_SIGMA = 1.0
-# Порог уверенности и радиус подавления соседей при чтении карты.
-PEAK_THRESHOLD = 0.3
+# Порог уверенности и радиус подавления соседей при чтении карты. Порог
+# выбран по кривой «точность против полноты» на кадрах корпуса
+# (tools/sweep_threshold.py): от 0,1 до 0,7 полнота не меняется вовсе — сеть
+# отвечает почти всегда уверенно, — а точность растёт с 0,562 до 0,672.
+# Выше 0,7 начинает теряться полнота, поэтому взята верхняя точка полки.
+PEAK_THRESHOLD = 0.6
 NMS_KERNEL = 3
 # Допуск при сверке с разметкой: расстояние между центрами в канонических
 # пикселях. IoU не годится — при значке 25 px ошибка в пару пикселей резко
@@ -43,6 +47,57 @@ NMS_KERNEL = 3
 MATCH_DISTANCE = 3.0
 # Порог «парабола вырождена»: делить на такой знаменатель бессмысленно.
 FLAT_PEAK_EPSILON = 1e-6
+
+
+@dataclass(frozen=True)
+class Augmentation:
+    """Разброс, добавляемый обучающим кадрам; проверочные не трогаются.
+
+    Ни одна ось не выдумана. **Яркость**: настоящие кадры ярче синтетики —
+    45,3 против 42,0 по среднему пикселю (замер по 12 кадрам корпуса против
+    датасета), и весь настоящий разброс 43,3-47,3 лежит выше синтетического
+    среднего; множитель подобран так, чтобы синтетика накрывала настоящий
+    диапазон с запасом. **Контраст** — тот же довод при разнице СКО 45,5
+    против 45,2, поэтому разброс узкий. **Сдвиг кадра** — не наблюдаемое
+    явление, а защита: без него сеть вольна запомнить, в каких местах карты
+    вообще встречаются значки, и на живом кадре это знание её подводит.
+    """
+
+    shift_px: int = 2
+    brightness: tuple[float, float] = (0.95, 1.20)
+    contrast: tuple[float, float] = (0.92, 1.08)
+
+
+NO_AUGMENTATION = Augmentation(0, (1.0, 1.0), (1.0, 1.0))
+
+
+def augment_frame(
+    frame: np.ndarray,
+    centers: list[tuple[float, float]],
+    rng: np.random.Generator,
+    setup: Augmentation,
+) -> tuple[np.ndarray, list[tuple[float, float]]]:
+    """Кадр (3,320,320) и центры → сдвинутый и перекрашенный кадр с центрами.
+
+    Сдвиг делается копированием края наружу: пустых полос не появляется, а
+    рамка интерфейса у края кадра остаётся рамкой.
+    """
+    shifted = frame
+    dx = dy = 0
+    if setup.shift_px:
+        dx = int(rng.integers(-setup.shift_px, setup.shift_px + 1))
+        dy = int(rng.integers(-setup.shift_px, setup.shift_px + 1))
+        pad = setup.shift_px
+        padded = np.pad(frame, ((0, 0), (pad, pad), (pad, pad)), mode="edge")
+        top, left = pad - dy, pad - dx
+        shifted = padded[:, top : top + CANONICAL_SIDE, left : left + CANONICAL_SIDE]
+
+    brightness = rng.uniform(*setup.brightness)
+    contrast = rng.uniform(*setup.contrast)
+    mean = float(shifted.mean())
+    painted = (shifted - mean) * contrast + mean * brightness
+    moved = [(x + dx, y + dy) for x, y in centers]
+    return np.clip(painted, 0.0, 1.0, dtype=np.float32), moved
 
 
 @dataclass(frozen=True)

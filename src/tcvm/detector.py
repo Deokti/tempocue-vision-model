@@ -41,6 +41,8 @@ NMS_KERNEL = 3
 # пикселях. IoU не годится — при значке 25 px ошибка в пару пикселей резко
 # меняет IoU, не влияя на прикладную корректность (own-model-plan.md).
 MATCH_DISTANCE = 3.0
+# Порог «парабола вырождена»: делить на такой знаменатель бессмысленно.
+FLAT_PEAK_EPSILON = 1e-6
 
 
 @dataclass(frozen=True)
@@ -136,6 +138,31 @@ def focal_heatmap_loss(logits: torch.Tensor, target: torch.Tensor) -> torch.Tens
     return (positive_loss.sum() + negative_loss.sum()) / count
 
 
+def _parabolic_offset(plane: torch.Tensor, gy: int, gx: int, axis: int) -> float:
+    """Субпиксельная поправка к клетке по вершине параболы через три значения.
+
+    Клетка карты — это 4 канонических пикселя, поэтому округление до клетки
+    само по себе даёт ошибку до 2 px. Соседние значения бугра несут долю
+    пикселя: вершина параболы, проведённой через них, восстанавливает её.
+    """
+    height, width = plane.shape
+    if axis == 0:
+        if gy == 0 or gy == height - 1:
+            return 0.0
+        before, center, after = plane[gy - 1, gx], plane[gy, gx], plane[gy + 1, gx]
+    else:
+        if gx == 0 or gx == width - 1:
+            return 0.0
+        before, center, after = plane[gy, gx - 1], plane[gy, gx], plane[gy, gx + 1]
+
+    denominator = float(before - 2 * center + after)
+    if abs(denominator) < FLAT_PEAK_EPSILON:
+        return 0.0
+    offset = 0.5 * float(before - after) / denominator
+    # Вершина дальше половины клетки означала бы, что максимум не здесь.
+    return max(-0.5, min(0.5, offset))
+
+
 def decode_heatmap(
     logits: torch.Tensor, threshold: float = PEAK_THRESHOLD
 ) -> list[list[tuple[float, float, float]]]:
@@ -144,6 +171,12 @@ def decode_heatmap(
     Локальные максимумы находит максимум-пулинг: клетка остаётся, только если
     равна максимуму своей окрестности. Так близкие значки дают две вершины, а
     один значок — одну.
+
+    Клетка g соответствует канонической координате `g * STRIDE`: цель строится
+    округлением `x / STRIDE` до клетки. Первая версия прибавляла полклетки и
+    давала систематический сдвиг +2 px — при допуске 3 px этого хватало, чтобы
+    терять больше половины верных находок даже у идеальной модели. Остаток
+    округления снимает субпиксельная поправка по соседним клеткам.
     """
     probabilities = torch.sigmoid(logits)
     pooled = torch_functional.max_pool2d(
@@ -154,10 +187,13 @@ def decode_heatmap(
     results: list[list[tuple[float, float, float]]] = []
     for index in range(probabilities.shape[0]):
         found = []
+        plane = probabilities[index, 0]
         ys, xs = torch.nonzero(peaks[index, 0], as_tuple=True)
         for gy, gx in zip(ys.tolist(), xs.tolist(), strict=True):
-            confidence = float(probabilities[index, 0, gy, gx])
-            found.append(((gx + 0.5) * STRIDE, (gy + 0.5) * STRIDE, confidence))
+            confidence = float(plane[gy, gx])
+            offset_x = _parabolic_offset(plane, gy, gx, axis=1)
+            offset_y = _parabolic_offset(plane, gy, gx, axis=0)
+            found.append(((gx + offset_x) * STRIDE, (gy + offset_y) * STRIDE, confidence))
         results.append(sorted(found, key=lambda item: -item[2]))
     return results
 

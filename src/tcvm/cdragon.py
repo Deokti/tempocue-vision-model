@@ -87,6 +87,20 @@ def base_circle_bgra(
         cache_path.write_bytes(
             _download(f"{BASE_URL}/{patch}/game/assets/characters/{lower}/hud/{name}")
         )
-    with Image.open(cache_path) as image:
-        rgba = np.asarray(image.convert("RGBA"))
+    return read_png_bgra(cache_path)
+
+
+def read_png_bgra(path: Path) -> np.ndarray:
+    """Читает PNG как BGRA, удаляя файл, если он оборван.
+
+    Обрывы зеркала оставляли в кэше усечённые картинки, и падение всплывало
+    много позже — при генерации датасета. Битый кэш чинится перекачиванием.
+    """
+    try:
+        with Image.open(path) as image:
+            image.load()
+            rgba = np.asarray(image.convert("RGBA"))
+    except OSError as error:
+        path.unlink(missing_ok=True)
+        raise OSError(f"Битый файл кэша удалён, повтори запуск: {path}") from error
     return rgba[..., [2, 1, 0, 3]].copy()

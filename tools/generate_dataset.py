@@ -29,7 +29,10 @@ from tcvm.generator import (
 )
 
 DEFAULT_MAP_DIR = Path(__file__).resolve().parents[1] / "data" / "cdragon"
-STRUCTURES_PATH = Path(__file__).resolve().parents[1] / "annotations" / "map-structures.json"
+ANNOTATIONS = Path(__file__).resolve().parents[1] / "annotations"
+STRUCTURES_PATH = ANNOTATIONS / "map-structures.json"
+OBJECTS_PATH = ANNOTATIONS / "map-objects.json"
+DARKNESS_PATH = ANNOTATIONS / "map-darkness.png"
 CONTACT_SHEET_COLUMNS = 4
 
 
@@ -49,7 +52,8 @@ def main() -> None:
     if args.roster:
         roster = roster[: args.roster]
     structures = json.loads(STRUCTURES_PATH.read_text(encoding="utf-8"))["structures"]
-    assets = AssetLibrary(args.map_dir, patch, structures)
+    map_objects = json.loads(OBJECTS_PATH.read_text(encoding="utf-8"))["objects"]
+    assets = AssetLibrary(args.map_dir, patch, structures, map_objects, DARKNESS_PATH)
     rng = np.random.default_rng(args.seed)
     print(f"Data Dragon {version}, чемпионов в ростере {len(roster)}, seed {args.seed}")
 
@@ -58,9 +62,9 @@ def main() -> None:
     previews = []
     with labels_path.open("w", encoding="utf-8", newline="\n") as labels_file:
         for index in range(args.count):
-            scene = random_scene(rng, roster, structures)
+            scene = random_scene(rng, roster, structures, map_objects)
             if scene.variant not in walkable_cache:
-                walkable_cache[scene.variant] = walkable_mask(assets.layer(scene.variant))
+                walkable_cache[scene.variant] = walkable_mask(assets.darkness)
             scene = place_entities(rng, scene, walkable_cache[scene.variant])
             frame, metadata = render_scene(scene, assets)
 

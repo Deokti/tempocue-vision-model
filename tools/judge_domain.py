@@ -44,7 +44,10 @@ DEFAULT_DATA_ROOT = Path(
 )
 DEFAULT_INBOX = Path(r"C:\Users\deokn\.codex\worktrees\739a\PROJECT\replay-inbox")
 DEFAULT_MAP_DIR = Path(__file__).resolve().parents[1] / "data" / "cdragon"
-STRUCTURES_PATH = Path(__file__).resolve().parents[1] / "annotations" / "map-structures.json"
+ANNOTATIONS = Path(__file__).resolve().parents[1] / "annotations"
+STRUCTURES_PATH = ANNOTATIONS / "map-structures.json"
+OBJECTS_PATH = ANNOTATIONS / "map-objects.json"
+DARKNESS_PATH = ANNOTATIONS / "map-darkness.png"
 VALIDATION_SHARE = 0.3
 # Пороги вердикта: ниже CLOSE домены считаем неразличимыми, выше DIVERGED —
 # разошедшимися. Взяты как «монетка с запасом» и «уверенное узнавание».
@@ -68,9 +71,9 @@ def synthesize_frames(count: int, assets: AssetLibrary, roster: list[str], seed:
     walkable_cache: dict[str, np.ndarray] = {}
     frames = []
     for _ in range(count):
-        scene = random_scene(rng, roster, assets.structures)
+        scene = random_scene(rng, roster, assets.structures, assets.map_objects)
         if scene.variant not in walkable_cache:
-            walkable_cache[scene.variant] = walkable_mask(assets.layer(scene.variant))
+            walkable_cache[scene.variant] = walkable_mask(assets.darkness)
         scene = place_entities(rng, scene, walkable_cache[scene.variant])
         frames.append(render_scene(scene, assets)[0])
     return frames
@@ -138,7 +141,8 @@ def main() -> None:
     version = latest_version()
     patch = patch_of(version)
     structures = json.loads(STRUCTURES_PATH.read_text(encoding="utf-8"))["structures"]
-    assets = AssetLibrary(args.map_dir, patch, structures)
+    map_objects = json.loads(OBJECTS_PATH.read_text(encoding="utf-8"))["objects"]
+    assets = AssetLibrary(args.map_dir, patch, structures, map_objects, DARKNESS_PATH)
 
     real = collect_real_frames(args.data, args.inbox)
     synthetic = synthesize_frames(len(real), assets, champion_ids(version), args.seed)

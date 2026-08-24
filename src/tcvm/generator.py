@@ -13,6 +13,8 @@
 - постройки — канонические позиции, состояние зависит от стадии игры
   (пластины до ~14 минут, снос к поздней игре);
 - зона видимости — от союзных построек, чемпионов и случайных вардов;
+- мелкие объекты карты (лагеря, растения) — из канонических позиций, часть
+  случайно скрыта: лагерь убит, растение сорвано;
 - миньоны — колонны, ложащиеся вдоль проходимых коридоров.
 
 Кадры канонические 320×320: значок чемпиона всегда ~25 px, как после
@@ -44,7 +46,9 @@ from .synthesis import (
     STRUCTURE_ENEMY_BGR,
     STRUCTURE_SIDE,
     compose_background,
+    draw_map_object,
     draw_minion_column,
+    load_darkness_mask,
     load_map_layer,
     load_minimap_icon,
     place_icon,
@@ -75,9 +79,9 @@ MAP_VARIANTS = (
     "ocean_baron3",
 )
 
-# Проходимость: слой карты прозрачен там, где пол и река; порог ниже полной
-# непрозрачности пропускает и полупрозрачные кромки реки.
-WALKABLE_ALPHA = 200
+# Проходимость выводится из маски чёрных областей карты: тёмное — стены и
+# скалы, светлое — проходимая земля. Альфа текстуры для этого не годится:
+# сравнение показало, что она почти не связана с темнотой настоящих кадров.
 # Отступ значка от края кадра: половина значка плюс запас на кольцо.
 EDGE_MARGIN = 14
 
@@ -118,6 +122,12 @@ EVEN_ODDS = 0.5
 
 WARD_SIGHT_MAX = 4
 
+# Доля видимых мелких объектов карты: лагерь убит или растение сорвано —
+# обычное дело, но большая часть карты в любой момент цела.
+MAP_OBJECT_VISIBLE_SHARE = (0.55, 0.95)
+# Варды: живые точки обзора на карте, число случайно.
+WARD_COUNT_MAX = 6
+
 
 @dataclass(frozen=True)
 class PlacedChampion:
@@ -149,15 +159,27 @@ class Scene:
     minion_columns: tuple[MinionColumn, ...]
     ward_sights: tuple[tuple[int, int], ...]
     turret_states: tuple[str, ...]  # имя иконки или "destroyed", по map-structures
+    visible_map_objects: tuple[bool, ...]  # по объекту из map-objects.json
 
 
 class AssetLibrary:
     """Ленивый доступ к ассетам с кэшем в памяти; сеть только при промахе кэша."""
 
-    def __init__(self, map_dir: Path, patch: str, structures: list[dict]):
+    def __init__(
+        self,
+        map_dir: Path,
+        patch: str,
+        structures: list[dict],
+        map_objects: list[dict] | None = None,
+        darkness_path: Path | None = None,
+    ):
         self.map_dir = map_dir
         self.patch = patch
         self.structures = structures
+        self.map_objects = map_objects or []
+        self.darkness = (
+            load_darkness_mask(darkness_path, CANONICAL_SIDE) if darkness_path else None
+        )
         self._layers: dict[str, np.ndarray] = {}
         self._icons: dict[str, np.ndarray] = {}
         self._circles: dict[str, np.ndarray | None] = {}
@@ -183,14 +205,9 @@ class AssetLibrary:
         return self._circles[champion_id]
 
 
-def walkable_mask(layer_bgra: np.ndarray) -> np.ndarray:
-    """Проходимая область в канонических координатах по прозрачности слоя."""
-    alpha = np.asarray(
-        Image.fromarray(layer_bgra[..., 3]).resize(
-            (CANONICAL_SIDE, CANONICAL_SIDE), Image.BILINEAR
-        )
-    )
-    mask = alpha < WALKABLE_ALPHA
+def walkable_mask(darkness: np.ndarray) -> np.ndarray:
+    """Проходимая область: всё, что не чёрная зона карты, кроме полей кадра."""
+    mask = ~darkness.copy()
     mask[:EDGE_MARGIN] = mask[-EDGE_MARGIN:] = False
     mask[:, :EDGE_MARGIN] = mask[:, -EDGE_MARGIN:] = False
     return mask
@@ -241,7 +258,12 @@ def _column_direction(
     return fitting[rng.integers(len(fitting))]
 
 
-def random_scene(rng: np.random.Generator, roster: list[str], structures: list[dict]) -> Scene:
+def random_scene(
+    rng: np.random.Generator,
+    roster: list[str],
+    structures: list[dict],
+    map_objects: list[dict] | None = None,
+) -> Scene:
     """Случайная сцена; все оси рандомизации описаны в докстринге модуля."""
     variant = MAP_VARIANTS[rng.integers(len(MAP_VARIANTS))]
     ally_side = "southwest" if rng.random() < EVEN_ODDS else "northeast"
@@ -291,8 +313,10 @@ def random_scene(rng: np.random.Generator, roster: list[str], structures: list[d
             int(rng.integers(EDGE_MARGIN, CANONICAL_SIDE - EDGE_MARGIN)),
             int(rng.integers(EDGE_MARGIN, CANONICAL_SIDE - EDGE_MARGIN)),
         )
-        for _ in range(rng.integers(0, WARD_SIGHT_MAX + 1))
+        for _ in range(rng.integers(0, WARD_COUNT_MAX + 1))
     )
+    share = rng.uniform(*MAP_OBJECT_VISIBLE_SHARE)
+    visible_objects = tuple(bool(rng.random() < share) for _ in range(len(map_objects or [])))
 
     return Scene(
         variant=variant,
@@ -302,6 +326,7 @@ def random_scene(rng: np.random.Generator, roster: list[str], structures: list[d
         minion_columns=tuple(columns),
         ward_sights=wards,
         turret_states=tuple(turret_states),
+        visible_map_objects=visible_objects,
     )
 
 
@@ -345,6 +370,7 @@ def place_entities(rng: np.random.Generator, scene: Scene, walkable: np.ndarray)
         columns,
         scene.ward_sights,
         scene.turret_states,
+        scene.visible_map_objects,
     )
 
 
@@ -395,6 +421,7 @@ def render_scene(scene: Scene, assets: AssetLibrary) -> tuple[np.ndarray, dict]:
         assets.layer(scene.variant),
         CANONICAL_SIDE,
         visibility_mask(CANONICAL_SIDE, sight),
+        assets.darkness,
     )
 
     for structure, state in zip(assets.structures, scene.turret_states, strict=True):
@@ -418,6 +445,10 @@ def render_scene(scene: Scene, assets: AssetLibrary) -> tuple[np.ndarray, dict]:
             (structure["x"], structure["y"]),
             STRUCTURE_ICON_SIZE[structure["type"]],
         )
+
+    for map_object, visible in zip(assets.map_objects, scene.visible_map_objects, strict=True):
+        if visible:
+            draw_map_object(canvas, map_object["type"], map_object["x"], map_object["y"])
 
     dot_ally = tinted_icon(assets.icon("minionmapcircle"), MINION_ALLY_BGR)
     dot_enemy = tinted_icon(assets.icon("minionmapcircle"), MINION_ENEMY_BGR)

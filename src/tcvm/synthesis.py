@@ -15,6 +15,11 @@ inhibitor, nexus): тёмная заливка со светлым контур�
 
 Миньоны — колонны тонированных точек minionmapcircle вдоль линий.
 
+Мелкие постоянные объекты (лагеря джунглей, растения) — простые фигуры
+измеренного цвета и размера: на канонической карте они занимают 3-5 px, и
+рисовать их иконками интерфейса бессмысленно. Их отсутствие было главной
+причиной, по которой судья доменов отличал синтетику (docs/generator.md).
+
 Константы измерены по кадрам корпуса; происхождение у каждой в комментарии.
 Пока не моделируются: пинги, свечение отзыва/телепорта, рамка интерфейса по
 краю кадра, обрезка обзора стенами, канонические позиции построек (в превью
@@ -30,16 +35,20 @@ from PIL import Image
 
 from .render import gaussian_blur
 
-# Медианы по кадру static-tower-as-champion-01 (замер 24.08.2026):
-# цвет пола — медиана пикселей кадра там, где слой карты прозрачен,
-# отдельно под туманом и в зоне видимости (порог по яркости).
-FLOOR_FOG_BGR = (27, 28, 16)
-FLOOR_VISIBLE_BGR = (44, 56, 52)
-# Затемнение слоя карты: отношение яркости стен настоящего кадра к яркости
-# текстуры. Под туманом три канала дают один множитель ~0,33; в зоне
-# видимости множитель ровно 1,0 — открытая карта рисуется без затемнения.
-MAP_DIM_FOG = 0.33
-MAP_DIM_VISIBLE = 1.0
+# Устройство фона измерено по кадрам корпуса (24.08.2026). Земля рисуется
+# самой текстурой слоя: под туманом войны с множителем 0,29, в зоне видимости
+# — ровно 1,0 (открытая карта не затемняется вообще).
+GROUND_DIM_FOG = 0.29
+GROUND_DIM_VISIBLE = 1.0
+
+# Чёрные области карты (стены, скалы, часть кустов) — самостоятельные данные:
+# ни альфа текстуры, ни grasstint, ни накладка тумана их не описывают
+# (проверено). Маска снята с 17 настоящих кадров как «пиксель тёмный больше
+# чем в 60 % кадров» и лежит в annotations/map-darkness.png. Именно контраст
+# чёрных областей со светлой землёй даёт настоящему кадру его резкость.
+DARKNESS_BGR = (6, 6, 4)
+# Порог чтения чёрно-белой маски из PNG: середина шкалы.
+MASK_THRESHOLD = 127
 
 # Радиус обзора в канонических пикселях: обзор чемпиона ~1200 игровых
 # единиц при стороне карты ~15000 единиц и канонических 320 px.
@@ -67,6 +76,15 @@ MINION_ENEMY_BGR = (35, 35, 126)
 MINION_SIDE = 5
 # Шаг точек в колонне волны: точки соприкасаются (зум кадра 03).
 MINION_SPACING = 6
+
+# Мелкие объекты карты: цвет — медиана пикселей соответствующего цветового
+# кластера по кадрам корпуса, сторона — медиана ширины найденных пятен
+# (замер 24.08.2026, tools/extract_map_objects.py).
+MAP_OBJECT_STYLE = {
+    "camp": {"bgr": (50, 103, 162), "side": 5, "shape": "diamond"},
+    "plant_green": {"bgr": (60, 154, 63), "side": 3, "shape": "square"},
+    "plant_yellow": {"bgr": (58, 149, 198), "side": 3, "shape": "square"},
+}
 
 # Цвета колец: медиана верхней четверти по насыщенности кольцевой полосы
 # (радиусы 10,6–12,4) кадра 08 — сглаженные с фоном пиксели отсеяны.
@@ -107,33 +125,41 @@ def visibility_mask(
     return np.clip(mask, 0.0, 1.0)
 
 
+def load_darkness_mask(path: Path, side: int) -> np.ndarray:
+    """Маска чёрных областей карты (annotations/map-darkness.png)."""
+    with Image.open(path) as image:
+        grey = np.asarray(image.convert("L").resize((side, side), Image.NEAREST))
+    return grey > MASK_THRESHOLD
+
+
 def compose_background(
     layer_bgra: np.ndarray,
     side: int,
     visibility: np.ndarray | None = None,
+    darkness: np.ndarray | None = None,
 ) -> np.ndarray:
     """Фон миникарты стороной side (BGR float).
 
-    Две версии — открытая (светлый пол, текстура как есть) и под туманом
-    (тёмный пол, текстура на треть яркости) — смешиваются маской видимости.
+    Земля рисуется текстурой: приглушённо под туманом, в полную силу в зоне
+    видимости. Поверх накладываются чёрные области карты по маске.
     """
     layer = Image.fromarray(layer_bgra[..., [2, 1, 0, 3]], "RGBA").resize(
         (side, side), Image.BILINEAR
     )
     layer_np = np.asarray(layer).astype(np.float64)
-    alpha = layer_np[..., 3:4] / 255.0
-    layer_bgr = layer_np[..., [2, 1, 0]]
+    texture = layer_np[..., [2, 1, 0]]
 
-    def blend(floor_bgr, dim):
-        floor = np.full((side, side, 3), floor_bgr, dtype=np.float64)
-        return floor * (1.0 - alpha) + layer_bgr * dim * alpha
-
-    fogged = blend(FLOOR_FOG_BGR, MAP_DIM_FOG)
+    fogged = texture * GROUND_DIM_FOG
     if visibility is None:
-        return fogged
-    lit = blend(FLOOR_VISIBLE_BGR, MAP_DIM_VISIBLE)
-    v = visibility[..., np.newaxis]
-    return lit * v + fogged * (1.0 - v)
+        canvas = fogged
+    else:
+        lit = texture * GROUND_DIM_VISIBLE
+        v = visibility[..., np.newaxis]
+        canvas = lit * v + fogged * (1.0 - v)
+
+    if darkness is not None:
+        canvas = np.where(darkness[..., np.newaxis], np.array(DARKNESS_BGR, float), canvas)
+    return canvas
 
 
 def load_minimap_icon(icons_dir: Path, name: str) -> np.ndarray:
@@ -179,6 +205,20 @@ def draw_minion_column(
             round(start_xy[1] + step[1] * index),
         )
         place_icon(canvas_bgr, dot_bgra, center, MINION_SIDE)
+
+
+def draw_map_object(canvas_bgr: np.ndarray, kind: str, x: int, y: int) -> None:
+    """Рисует мелкий объект карты: квадрат растения или ромб лагеря."""
+    style = MAP_OBJECT_STYLE[kind]
+    side = style["side"]
+    half = side // 2
+    for dy in range(-half, half + 1):
+        for dx in range(-half, half + 1):
+            if style["shape"] == "diamond" and abs(dx) + abs(dy) > half:
+                continue
+            py, px = y + dy, x + dx
+            if 0 <= py < canvas_bgr.shape[0] and 0 <= px < canvas_bgr.shape[1]:
+                canvas_bgr[py, px] = style["bgr"]
 
 
 def ringed_icon(icon_bgra: np.ndarray, ring_bgr: tuple[int, int, int]) -> np.ndarray:

@@ -33,6 +33,7 @@ from tcvm.synthesis import (
     STRUCTURE_SIDE,
     compose_background,
     draw_minion_column,
+    load_darkness_mask,
     load_map_layer,
     load_minimap_icon,
     place_icon,
@@ -46,7 +47,9 @@ DEFAULT_CORPUS = Path(
     r"C:\Users\deokn\.codex\worktrees\739a\PROJECT\tests\TempoCue.Vision.Tests\ReplayCorpus"
 )
 DEFAULT_MAP_DIR = Path(__file__).resolve().parents[1] / "data" / "cdragon"
-STRUCTURES_PATH = Path(__file__).resolve().parents[1] / "annotations" / "map-structures.json"
+ANNOTATIONS = Path(__file__).resolve().parents[1] / "annotations"
+STRUCTURES_PATH = ANNOTATIONS / "map-structures.json"
+DARKNESS_PATH = ANNOTATIONS / "map-darkness.png"
 CANONICAL_SIDE = 320
 # Иконка и размер по типу постройки; размеры сняты при съёме позиций.
 STRUCTURE_ICONS = {
@@ -70,7 +73,10 @@ def synthesize_like(frame, map_dir: Path, variant: str, patch: str) -> np.ndarra
         for r in (frame.labels.regions if frame.labels else ())
         if r.affiliation == "Ally" and r.kind in ("Champion", "Tower")
     ]
-    canvas = compose_background(layer, CANONICAL_SIDE, visibility_mask(CANONICAL_SIDE, sight))
+    darkness = load_darkness_mask(DARKNESS_PATH, CANONICAL_SIDE)
+    canvas = compose_background(
+        layer, CANONICAL_SIDE, visibility_mask(CANONICAL_SIDE, sight), darkness
+    )
 
     # Постройки и миньоны рисуются до чемпионов: значки чемпионов лежат поверх.
     # Постройки — все, из канонических позиций; в кадре 01 союзники на юго-западе.

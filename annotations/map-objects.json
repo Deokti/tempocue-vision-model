@@ -1,0 +1,258 @@
+{
+  "schemaVersion": 1,
+  "comment": "Мелкие постоянные объекты миникарты (лагеря джунглей, растения) в системе 320x320. Найдены автоматически: цветовые кластеры по всем 12 кадрам корпуса с исключением окрестностей размеченных чемпионов; каноническим считается объект, встретившийся не менее чем в трёх кадрах — чемпионы двигаются, объекты джунглей стоят. Поле seen — в скольких кадрах найден.",
+  "objects": [
+    {
+      "type": "camp",
+      "x": 106,
+      "y": 0,
+      "seen": 10
+    },
+    {
+      "type": "camp",
+      "x": 180,
+      "y": 0,
+      "seen": 10
+    },
+    {
+      "type": "camp",
+      "x": 141,
+      "y": 62,
+      "seen": 10
+    },
+    {
+      "type": "camp",
+      "x": 153,
+      "y": 89,
+      "seen": 11
+    },
+    {
+      "type": "camp",
+      "x": 100,
+      "y": 115,
+      "seen": 5
+    },
+    {
+      "type": "camp",
+      "x": 168,
+      "y": 116,
+      "seen": 8
+    },
+    {
+      "type": "camp",
+      "x": 56,
+      "y": 138,
+      "seen": 8
+    },
+    {
+      "type": "camp",
+      "x": 231,
+      "y": 139,
+      "seen": 12
+    },
+    {
+      "type": "camp",
+      "x": 88,
+      "y": 147,
+      "seen": 7
+    },
+    {
+      "type": "camp",
+      "x": 232,
+      "y": 168,
+      "seen": 11
+    },
+    {
+      "type": "camp",
+      "x": 89,
+      "y": 176,
+      "seen": 7
+    },
+    {
+      "type": "camp",
+      "x": 263,
+      "y": 177,
+      "seen": 12
+    },
+    {
+      "type": "camp",
+      "x": 152,
+      "y": 198,
+      "seen": 8
+    },
+    {
+      "type": "camp",
+      "x": 221,
+      "y": 202,
+      "seen": 4
+    },
+    {
+      "type": "camp",
+      "x": 168,
+      "y": 226,
+      "seen": 7
+    },
+    {
+      "type": "camp",
+      "x": 179,
+      "y": 252,
+      "seen": 11
+    },
+    {
+      "type": "camp",
+      "x": 14,
+      "y": 286,
+      "seen": 5
+    },
+    {
+      "type": "plant_green",
+      "x": 29,
+      "y": 24,
+      "seen": 10
+    },
+    {
+      "type": "plant_green",
+      "x": 184,
+      "y": 77,
+      "seen": 5
+    },
+    {
+      "type": "plant_green",
+      "x": 132,
+      "y": 85,
+      "seen": 3
+    },
+    {
+      "type": "plant_green",
+      "x": 85,
+      "y": 134,
+      "seen": 6
+    },
+    {
+      "type": "plant_green",
+      "x": 218,
+      "y": 154,
+      "seen": 7
+    },
+    {
+      "type": "plant_green",
+      "x": 100,
+      "y": 161,
+      "seen": 9
+    },
+    {
+      "type": "plant_green",
+      "x": 45,
+      "y": 180,
+      "seen": 4
+    },
+    {
+      "type": "plant_green",
+      "x": 248,
+      "y": 200,
+      "seen": 4
+    },
+    {
+      "type": "plant_green",
+      "x": 189,
+      "y": 212,
+      "seen": 5
+    },
+    {
+      "type": "plant_green",
+      "x": 188,
+      "y": 232,
+      "seen": 7
+    },
+    {
+      "type": "plant_green",
+      "x": 134,
+      "y": 237,
+      "seen": 6
+    },
+    {
+      "type": "plant_green",
+      "x": 87,
+      "y": 255,
+      "seen": 3
+    },
+    {
+      "type": "plant_green",
+      "x": 18,
+      "y": 280,
+      "seen": 9
+    },
+    {
+      "type": "plant_yellow",
+      "x": 23,
+      "y": 18,
+      "seen": 10
+    },
+    {
+      "type": "plant_yellow",
+      "x": 141,
+      "y": 62,
+      "seen": 10
+    },
+    {
+      "type": "plant_yellow",
+      "x": 100,
+      "y": 115,
+      "seen": 6
+    },
+    {
+      "type": "plant_yellow",
+      "x": 168,
+      "y": 116,
+      "seen": 10
+    },
+    {
+      "type": "plant_yellow",
+      "x": 56,
+      "y": 138,
+      "seen": 8
+    },
+    {
+      "type": "plant_yellow",
+      "x": 231,
+      "y": 139,
+      "seen": 12
+    },
+    {
+      "type": "plant_yellow",
+      "x": 89,
+      "y": 177,
+      "seen": 7
+    },
+    {
+      "type": "plant_yellow",
+      "x": 263,
+      "y": 177,
+      "seen": 12
+    },
+    {
+      "type": "plant_yellow",
+      "x": 152,
+      "y": 198,
+      "seen": 8
+    },
+    {
+      "type": "plant_yellow",
+      "x": 221,
+      "y": 202,
+      "seen": 5
+    },
+    {
+      "type": "plant_yellow",
+      "x": 179,
+      "y": 252,
+      "seen": 10
+    },
+    {
+      "type": "plant_yellow",
+      "x": 15,
+      "y": 285,
+      "seen": 7
+    }
+  ]
+}

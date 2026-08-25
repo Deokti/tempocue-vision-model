@@ -55,6 +55,13 @@ ONE_PER_CHAMPION = True
 # Это не новая ступень, а завершение прежней: то же совмещение, каким конвейер
 # приложения уже пользуется, только теперь ему подсказано, что искать.
 REFINE_RADIUS = 8
+# Сколько раз называть значок. Уточнение центра идёт по имени, поэтому второй
+# проход опознания смотрит уже на выровненный вырез. По слепому корпусу взятые
+# чемпионы не меняются (346 против 348 при трёх проходах — в пределах шума), а
+# ложные срабатывания падают на треть: 39 → 25, и так же у двух других
+# детекторов. Умолчание оставлено единицей: приём измерен, но в конвейер
+# приложения ещё не внесён.
+NAMING_PASSES = 1
 PATCH_VERSION = "16.16.1"
 NAIVE = RenderParams(1.0, ICON_SIDE, "box", "srgb", 0.0, "bilinear", 0.0, 0.0)
 INNER_MASK = circular_mask(ICON_SIDE, INNER_RADIUS)
@@ -198,6 +205,12 @@ def main() -> None:
         "--no-refine", action="store_true", help="не уточнять положение по опознанному имени"
     )
     parser.add_argument(
+        "--passes",
+        type=int,
+        default=NAMING_PASSES,
+        help="сколько раз называть: каждый следующий проход идёт по уточнённому вырезу",
+    )
+    parser.add_argument(
         "--tolerance",
         type=float,
         default=MATCH_DISTANCE,
@@ -223,6 +236,7 @@ def main() -> None:
     tally = Tally()
     icons: dict[str, np.ndarray | None] = {}
     print("Уточнение положения по имени: " + ("выключено" if args.no_refine else "включено"))
+    print(f"Проходов опознания: {args.passes}")
     print()
     for frame in load_corpus(corpus):
         pixels = bgra_to_rgb(frame.pixels)
@@ -230,6 +244,14 @@ def main() -> None:
             found = decode_heatmap(detector(frame_to_tensor(frame.pixels)))[0]
         roster = [reference.champion_id for reference in frame.references]
         named = name_detections(pixels, found, identity, vocabulary, roster)
+        for _ in range(max(0, args.passes - 1)):
+            moved = [
+                (*refine(frame, x, y, name, icons), name) if name else (x, y, name)
+                for x, y, name in named
+            ]
+            named = name_detections(
+                pixels, [(x, y, 1.0) for x, y, _ in moved], identity, vocabulary, roster
+            )
         if not args.no_refine:
             named = [
                 (*refine(frame, x, y, name, icons), name) if name else (x, y, name)

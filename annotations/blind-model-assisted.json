@@ -1,0 +1,286 @@
+{
+  "schemaVersion": 1,
+  "comment": "Метки слепого корпуса, найденные с подсказкой модели и подтверждённые человеком глазами. Полнота по ним завышена по построению: модель их нашла, значит найдёт и при замере. Считать полноту надо без них, точность — со всеми, иначе настоящие чемпионы пойдут в ложные.",
+  "labels": [
+    {
+      "frame": "TempoCue-minimap-20260825-145415",
+      "championId": "Yone"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-145524",
+      "championId": "Cassiopeia"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-145524",
+      "championId": "Yone"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-145736",
+      "championId": "Cassiopeia"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-150041",
+      "championId": "Cassiopeia"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-150346",
+      "championId": "Urgot"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-150346",
+      "championId": "Warwick"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-150433",
+      "championId": "Kennen"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-150433",
+      "championId": "TwistedFate"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-150843",
+      "championId": "Volibear"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-155529",
+      "championId": "Rakan"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-155607",
+      "championId": "Sejuani"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-155726",
+      "championId": "Karthus"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-155726",
+      "championId": "Singed"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-155737",
+      "championId": "Nautilus"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-155746",
+      "championId": "Rakan"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-155813",
+      "championId": "Cassiopeia"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-155828",
+      "championId": "Nautilus"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-155835",
+      "championId": "Nautilus"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-155930",
+      "championId": "Karthus"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-155953",
+      "championId": "Karthus"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-155953",
+      "championId": "Rakan"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-160028",
+      "championId": "Diana"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-160028",
+      "championId": "Singed"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-160049",
+      "championId": "Diana"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-160049",
+      "championId": "Karthus"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-160049",
+      "championId": "Nautilus"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-160049",
+      "championId": "Singed"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-160149",
+      "championId": "Nautilus"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-160149",
+      "championId": "Rakan"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-160149",
+      "championId": "Singed"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-160427",
+      "championId": "Ashe"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-160427",
+      "championId": "Darius"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-160427",
+      "championId": "Swain"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-160427",
+      "championId": "Volibear"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-160431",
+      "championId": "Ashe"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-160431",
+      "championId": "Swain"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-160507",
+      "championId": "Malzahar"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-160507",
+      "championId": "Swain"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-160527",
+      "championId": "Malzahar"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-160527",
+      "championId": "Volibear"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-160527",
+      "championId": "XinZhao"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-160600",
+      "championId": "Malzahar"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-160656",
+      "championId": "Malzahar"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-160714",
+      "championId": "Ashe"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-160714",
+      "championId": "Swain"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-160751",
+      "championId": "Malzahar"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-160916",
+      "championId": "Swain"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-161005",
+      "championId": "Malzahar"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-161329",
+      "championId": "Milio"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-161501",
+      "championId": "Fizz"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-161501",
+      "championId": "Vayne"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-161522",
+      "championId": "Sona"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-161522",
+      "championId": "Vayne"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-161529",
+      "championId": "Sona"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-161546",
+      "championId": "Chogath"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-161546",
+      "championId": "Maokai"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-161546",
+      "championId": "Vayne"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-161840",
+      "championId": "Chogath"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-161840",
+      "championId": "Milio"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-161840",
+      "championId": "Sona"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-162201",
+      "championId": "Chogath"
+    },
+    {
+      "frame": "TempoCue-minimap-20260825-162201",
+      "championId": "Sona"
+    },
+    {
+      "frame": "lag-02",
+      "championId": "Morgana"
+    },
+    {
+      "frame": "lag-02",
+      "championId": "Tryndamere"
+    },
+    {
+      "frame": "lag-02",
+      "championId": "Yorick"
+    },
+    {
+      "frame": "lag-03",
+      "championId": "Morgana"
+    },
+    {
+      "frame": "lag-03",
+      "championId": "Veigar"
+    },
+    {
+      "frame": "lag-03",
+      "championId": "Yorick"
+    },
+    {
+      "frame": "nasus-not-shown",
+      "championId": "Sivir"
+    }
+  ]
+}

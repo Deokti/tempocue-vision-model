@@ -36,7 +36,15 @@ from torch.nn import functional as torch_functional
 
 from tcvm.cdragon import base_circle_bgra, patch_of
 from tcvm.formats import ReplayFrame, bgra_to_rgb, default_corpus_dir, load_corpus
-from tcvm.matching import ICON_SIDE, INNER_RADIUS, circular_mask
+from tcvm.matching import (
+    ICON_SIDE,
+    INNER_RADIUS,
+    MIN_VISIBLE_SHARE,
+    circular_mask,
+    crop_centered,
+    masked_ncc,
+    visible_mask,
+)
 from tcvm.render import RenderParams, render_icon
 from tcvm.synthesis import MAP_PLACEMENT, map_rect
 
@@ -61,6 +69,8 @@ REVIEW_SCORE = 0.55
 # значком, размыт движением, срезан краем), и уточнённый центр уезжает в
 # случайное место. Такую метку лучше оставить как есть, чем испортить.
 MOVE_SCORE = 0.80
+# Ближе этого значки считаются перекрывающимися и сравниваются по видимой части.
+CROWD_DISTANCE = 30.0
 # Насколько далеко от существующей метки искать уточнённый центр. Первая
 # версия искала в пяти пикселях, и этого не хватило: разбор потерь детектора
 # показал метки, уехавшие на 7-12 px (Ziggs в трёх кадрах, Lulu на 12,4).
@@ -259,6 +269,76 @@ def icon_of(
     return cache[champion]
 
 
+def best_unoccluded(
+    frame_bgra: np.ndarray,
+    template: np.ndarray,
+    center: tuple[float, float],
+    neighbours: list[tuple[float, float]],
+) -> tuple[float, float, float]:
+    """Уточнение центра с учётом того, что значок закрыт соседями."""
+    full = float(circular_mask(ICON_SIDE, INNER_RADIUS).sum())
+    best = (center[0], center[1], -2.0)
+    for dy in range(-ALIGN_RADIUS, ALIGN_RADIUS + 1):
+        for dx in range(-ALIGN_RADIUS, ALIGN_RADIUS + 1):
+            x, y = round(center[0]) + dx, round(center[1]) + dy
+            mask = visible_mask((x, y), neighbours)
+            if mask.sum() / full < MIN_VISIBLE_SHARE:
+                continue
+            try:
+                score = masked_ncc(crop_centered(frame_bgra, x, y), template, mask)
+            except ValueError:
+                continue
+            if score > best[2]:
+                best = (float(x), float(y), score)
+    return best
+
+
+def refine_label(
+    frame: ReplayFrame,
+    template: np.ndarray,
+    labelled: dict[str, tuple[float, float]],
+    who: tuple[str, str, tuple[int, int, int, int]],
+    scores: np.ndarray,
+) -> Proposal | None:
+    """Уточнение одной метки тремя способами по возрастанию цены.
+
+    Быстрый проход свёрткой; если значок в толпе — сравнение по видимой части;
+    если у края карты — по той части диска, что внутри карты. Побеждает
+    наибольшее совпадение, и метка двигается только при уверенном.
+    """
+    champion, side, bounds = who
+    center = labelled[champion]
+    x, y, score = best_near(scores, center, ALIGN_RADIUS)
+
+    neighbours = [
+        point
+        for name, point in labelled.items()
+        if name != champion
+        and np.hypot(point[0] - center[0], point[1] - center[1]) < CROWD_DISTANCE
+    ]
+    if neighbours:
+        crowded = best_unoccluded(frame.pixels, template, center, neighbours)
+        if crowded[2] > score:
+            x, y, score = crowded[0], crowded[1], crowded[2]
+    if score < MOVE_SCORE:
+        edge = clipped_best(frame.pixels, template, bounds, center)
+        if edge[0] > score:
+            score, x, y = edge[0], edge[1], edge[2]
+
+    dx, dy = x - center[0], y - center[1]
+    if float(np.hypot(dx, dy)) < WORTH_MOVING or score < MOVE_SCORE:
+        return None
+    if any(
+        np.hypot(x - point[0], y - point[1]) < SAME_SPOT
+        for name, point in labelled.items()
+        if name != champion
+    ):
+        return None  # уточнение уехало на чужой значок
+    return Proposal(
+        frame.name, champion, side, x, y, score, "сдвинуть", float(np.hypot(dx, dy)), dx, dy
+    )
+
+
 def examine_frame(
     frame: ReplayFrame, patch: str, icons: dict[str, np.ndarray | None]
 ) -> FrameProposals:
@@ -281,21 +361,9 @@ def examine_frame(
         side = "Ally" if reference.affiliation == 0 else "Enemy"
 
         if champion in labelled:
-            x, y, score = best_near(scores, labelled[champion], ALIGN_RADIUS)
-            others = [point for name, point in labelled.items() if name != champion]
-            if any(np.hypot(x - ox, y - oy) < SAME_SPOT for ox, oy in others):
-                continue  # уточнение уехало на чужой значок — не трогаем метку
-            if score < MOVE_SCORE:
-                edge = clipped_best(frame.pixels, template, bounds, labelled[champion])
-                if edge[0] > score:
-                    score, x, y = edge[0], edge[1], edge[2]
-            dx = x - labelled[champion][0]
-            dy = y - labelled[champion][1]
-            shift = float(np.hypot(dx, dy))
-            if shift >= WORTH_MOVING and score >= MOVE_SCORE:
-                result.moved.append(
-                    Proposal(frame.name, champion, side, x, y, score, "сдвинуть", shift, dx, dy)
-                )
+            move = refine_label(frame, template, labelled, (champion, side, bounds), scores)
+            if move is not None:
+                result.moved.append(move)
             continue
 
         x, y, score = global_best(scores)

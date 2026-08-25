@@ -281,6 +281,7 @@ C:\PROJECTS\tempocue-vision-model\data\
 | `.venvScriptspython: command not found` | Это Git Bash: пиши `.venv/Scripts/python` с прямыми слэшами |
 | Всё тормозит, диск шумит | Проект лежит в OneDrive — перенеси в несинхронизируемую папку |
 | `Package 'tcvm' requires a different Python` | Окружение создано старым Python; поставить 3.12, удалить `.venv`, создать заново через `py -3.12 -m venv .venv` |
+| `No module named 'tcvm'` | Проект перенесли в другую папку. Пакет ставится «по месту» (`pip install -e`) и помнит старый путь: повторить `.venv\Scripts\python -m pip install -e ".[dev]"` в новой папке |
 
 ## Порядок при следующих патчах Riot
 

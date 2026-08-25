@@ -241,3 +241,27 @@ def default_corpus_dir() -> Path:
         "Корпус не найден. Укажи путь ключом --corpus или переменной "
         f"{CORPUS_ENV}. Искали: " + "; ".join(str(c) for c in candidates)
     )
+
+
+# Ниже этого совпадения с текстурой карты кадр не считается миникартой.
+# Замер по 62 кадрам: у настоящих 0,33-0,44, у одного бракованного -0,07.
+# Брак выглядел так: приложение сняло кусок миникарты вместо неё целиком и
+# растянуло до канонических 320, отчего значки вышли втрое крупнее нормы.
+# Порог поставлен посередине пропасти между этими значениями.
+LOOKS_LIKE_MAP = 0.20
+
+
+def map_likeness(pixels_bgra: np.ndarray, texture_grey: np.ndarray, margin: int = 45) -> float:
+    """Насколько кадр похож на миникарту: совпадение с текстурой карты.
+
+    Считается по внутренней области, без рамки интерфейса и баз: там меньше
+    всего меняется от матча к матчу.
+    """
+    side = pixels_bgra.shape[0]
+    grey = bgra_to_rgb(pixels_bgra).astype(np.float64).mean(axis=2)
+    a = grey[margin : side - margin, margin : side - margin]
+    b = texture_grey[margin : side - margin, margin : side - margin]
+    a = a - a.mean()
+    b = b - b.mean()
+    denominator = np.linalg.norm(a) * np.linalg.norm(b)
+    return float((a * b).sum() / denominator) if denominator else 0.0

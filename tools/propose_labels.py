@@ -35,7 +35,14 @@ from PIL import Image, ImageDraw
 from torch.nn import functional as torch_functional
 
 from tcvm.cdragon import base_circle_bgra, patch_of
-from tcvm.formats import ReplayFrame, bgra_to_rgb, default_corpus_dir, load_corpus
+from tcvm.formats import (
+    LOOKS_LIKE_MAP,
+    ReplayFrame,
+    bgra_to_rgb,
+    default_corpus_dir,
+    load_corpus,
+    map_likeness,
+)
 from tcvm.matching import (
     ICON_SIDE,
     INNER_RADIUS,
@@ -46,7 +53,7 @@ from tcvm.matching import (
     visible_mask,
 )
 from tcvm.render import RenderParams, render_icon
-from tcvm.synthesis import MAP_PLACEMENT, map_rect
+from tcvm.synthesis import MAP_PLACEMENT, load_map_layer, map_rect, place_map_texture
 
 DEFAULT_CORPUS = None  # ищется при запуске: см. formats.default_corpus_dir
 PATCH_VERSION = "16.16.1"
@@ -572,6 +579,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--corpus", type=Path, default=None)
     parser.add_argument("--out", type=Path, default=Path("out/label-proposals"))
+    parser.add_argument("--map-dir", type=Path, default=Path("data/cdragon"))
     args = parser.parse_args()
     corpus = args.corpus or default_corpus_dir()
     (args.out / "frames").mkdir(parents=True, exist_ok=True)
@@ -582,7 +590,17 @@ def main() -> None:
     pixels_by_frame: dict[str, np.ndarray] = {}
 
     print("  кадр                                      есть  добавить  сдвинуть  отвергнуто")
+    texture = place_map_texture(
+        load_map_layer(args.map_dir / patch / "map11", "base_baron1"),
+        CANONICAL_FRAME,
+        MAP_PLACEMENT,
+    ).mean(axis=2)
+
     for frame in load_corpus(corpus):
+        likeness = map_likeness(frame.pixels, texture)
+        if likeness < LOOKS_LIKE_MAP:
+            print(f"  {frame.name}: не похож на миникарту ({likeness:.2f}), пропущен")
+            continue
         found = examine_frame(frame, patch, icons)
         all_found.append(found)
         pixels_by_frame[frame.name] = bgra_to_rgb(frame.pixels)

@@ -339,6 +339,46 @@ def refine_label(
     )
 
 
+def second_pass(
+    frame: ReplayFrame,
+    unsure: list[tuple[str, str, np.ndarray, float, float, float]],
+    taken: list[tuple[float, float]],
+    result: FrameProposals,
+) -> None:
+    """Второй заход по тем, кого не взял первый: значок закрыт соседом.
+
+    Первый проход находит открытые значки. Закрытые он пропускает, потому что
+    сравнение по полному диску считает чужие пиксели. Но после первого прохода
+    соседи уже известны, и закрытый значок можно сравнить по видимой части —
+    тем же приёмом, каким выправлялись метки корпуса.
+
+    Порог для второго захода тот же: доверять уточнению ниже него нельзя,
+    проверка глазами показала, что там оно уезжает на чужой значок.
+    """
+    for champion, side, template, x, y, first in unsure:
+        neighbours = [
+            point for point in taken if np.hypot(point[0] - x, point[1] - y) < CROWD_DISTANCE
+        ]
+        score, best_x, best_y = first, x, y
+        if neighbours:
+            found_x, found_y, found = best_unoccluded(
+                frame.pixels, template, (x, y), neighbours
+            )
+            if found > score:
+                score, best_x, best_y = found, found_x, found_y
+        if score >= ADD_SCORE and not any(
+            np.hypot(best_x - tx, best_y - ty) < SAME_SPOT for tx, ty in taken
+        ):
+            result.added.append(
+                Proposal(frame.name, champion, side, best_x, best_y, score, "добавить")
+            )
+            taken.append((best_x, best_y))
+        elif score >= REVIEW_SCORE:
+            result.rejected.append(
+                Proposal(frame.name, champion, side, best_x, best_y, score, "отвергнуто")
+            )
+
+
 def examine_frame(
     frame: ReplayFrame, patch: str, icons: dict[str, np.ndarray | None]
 ) -> FrameProposals:
@@ -350,6 +390,7 @@ def examine_frame(
         for region in regions
     }
     taken = list(labelled.values())
+    unsure: list[tuple[str, str, np.ndarray, float, float, float]] = []
     bounds = map_rect(CANONICAL_FRAME, MAP_PLACEMENT)
 
     for reference in frame.references:
@@ -376,10 +417,10 @@ def examine_frame(
         if score >= ADD_SCORE:
             result.added.append(Proposal(frame.name, champion, side, x, y, score, "добавить"))
             taken.append((x, y))
-        elif score >= REVIEW_SCORE:
-            result.rejected.append(
-                Proposal(frame.name, champion, side, x, y, score, "отвергнуто")
-            )
+        else:
+            unsure.append((champion, side, template, x, y, score))
+
+    second_pass(frame, unsure, taken, result)
     return result
 
 
@@ -556,7 +597,11 @@ def main() -> None:
     moved = [p for f in all_found for p in f.moved]
     rejected = [p for f in all_found for p in f.rejected]
     draw_gallery(added, pixels_by_frame, args.out / "gallery.png")
-    draw_gallery(rejected, pixels_by_frame, args.out / "rejected.png")
+    draw_gallery(
+        sorted(rejected, key=lambda item: -item.score),
+        pixels_by_frame,
+        args.out / "rejected.png",
+    )
     draw_moves(sorted(moved, key=lambda p: -p.shift), pixels_by_frame, args.out / "moves.png")
     write_proposals(all_found, args.out / "proposals.json")
 

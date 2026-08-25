@@ -35,6 +35,16 @@ from tcvm.formats import default_corpus_dir
 
 DEFAULT_CORPUS = None  # ищется при запуске: см. formats.default_corpus_dir
 DEFAULT_PROPOSALS = Path("out/label-proposals/proposals.json")
+# Пустая разметка для кадров, размечаемых впервые. Допуски нулевые: набор
+# собирается сразу полным, а не с оговоркой на будущее.
+EMPTY_LABELS = {
+    "schemaVersion": 1,
+    "regions": [],
+    "allowedFalsePositives": 0,
+    "allowedMissedChampions": 0,
+}
+# Перевод строки для новых файлов: как в большинстве файлов корпуса.
+NEW_FILE_NEWLINE = "\r\n"
 # Сторона коробки чемпиона в разметке корпуса — как во всех существующих метках.
 BOX_SIDE = 25
 CHAMPION_KIND = "Champion"
@@ -186,8 +196,9 @@ def main() -> None:
             continue
         path = labels_path(corpus, frame["frame"])
         if not path.exists():
-            print(f"{frame['frame']}: файла разметки нет — {path.name}")
-            continue
+            blank = format_document(EMPTY_LABELS, FileStyle(NEW_FILE_NEWLINE, False))
+            path.write_bytes(blank.encode("utf-8"))
+            print(f"{frame['frame']}: разметки не было, создаю")
         text = path.read_bytes().decode("utf-8")
         document = json.loads(text)
         style = detect_style(text)

@@ -79,7 +79,23 @@ def base_circle_bgra(
     else:
         if not names:
             raise FileNotFoundError(f"У {champion_id} нет circle-иконок в патче {patch}")
-        name = names[0]
+        # Базовый вид старых чемпионов лежит под внутренним именем Riot:
+        # Anivia — cryophoenix, Blitzcrank — steamgolem, Chogath — greenterror,
+        # Rammus — armordillo, Shaco — jester, Zilean — chronokeeper, а у
+        # переработанных — с приставкой rework. Общее у всех одно: базовый скин
+        # это индекс 0 либо файл без индекса, каким бы ни был префикс.
+        #
+        # Прежде вместо этого брался первый файл списка, и четверым чемпионам
+        # доставался **скин**: Anivia, Blitzcrank, Chogath и XinZhao учились и
+        # опознавались по чужому портрету. Это объясняло их постоянные ошибки
+        # в опознании — совпадение арта с игрой было 0,10-0,19 против 0,9 у
+        # остальных.
+        base = sorted(
+            candidate
+            for candidate in names
+            if candidate.endswith("_circle_0.png") or candidate.endswith("_circle.png")
+        )
+        name = base[0] if base else names[0]
 
     cache_path = cache_dir / patch / "circle" / name
     if not cache_path.exists():

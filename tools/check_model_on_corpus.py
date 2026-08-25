@@ -26,14 +26,19 @@ import torch
 
 from tcvm.cdragon import base_circle_bgra, patch_of
 from tcvm.detector import MATCH_DISTANCE, CenterDetector, decode_heatmap
-from tcvm.formats import ReplayFrame, bgra_to_rgb, load_corpus
-from tcvm.identity import CANONICAL_CROP, NO_CHAMPION, IdentityNet, as_input, choose
+from tcvm.formats import ReplayFrame, bgra_to_rgb, default_corpus_dir, load_corpus
+from tcvm.identity import (
+    CANONICAL_CROP,
+    NO_CHAMPION,
+    IdentityNet,
+    as_input,
+    check_setup,
+    choose,
+)
 from tcvm.matching import ICON_SIDE, INNER_RADIUS, circular_mask, find_best_match
 from tcvm.render import RenderParams, render_icon
 
-DEFAULT_CORPUS = Path(
-    r"C:\Users\deokn\.codex\worktrees\739a\PROJECT\tests\TempoCue.Vision.Tests\ReplayCorpus"
-)
+DEFAULT_CORPUS = None  # ищется при запуске: см. formats.default_corpus_dir
 # Числа конвейера приложения по тому же корпусу (docs/own-model-plan.md):
 # 45 чемпионов из 60 при нуле ложных и 58 мс на кадр.
 PIPELINE_TAKEN = 45
@@ -188,7 +193,7 @@ def main() -> None:
     parser.add_argument("--detector", type=Path, required=True)
     parser.add_argument("--identity", type=Path, required=True)
     parser.add_argument("--vocabulary", type=Path, default=None)
-    parser.add_argument("--corpus", type=Path, default=DEFAULT_CORPUS)
+    parser.add_argument("--corpus", type=Path, default=None)
     parser.add_argument(
         "--no-refine", action="store_true", help="не уточнять положение по опознанному имени"
     )
@@ -199,6 +204,7 @@ def main() -> None:
         help="допуск совпадения центра в пикселях",
     )
     args = parser.parse_args()
+    corpus = args.corpus or default_corpus_dir()
 
     vocabulary_path = args.vocabulary or args.identity.parent / "vocabulary.json"
     vocabulary = json.loads(vocabulary_path.read_text(encoding="utf-8"))
@@ -206,6 +212,7 @@ def main() -> None:
     detector = CenterDetector()
     detector.load_state_dict(torch.load(args.detector, map_location="cpu"))
     detector.eval()
+    check_setup(args.weights if hasattr(args, "weights") else args.identity)
     identity = IdentityNet(len(vocabulary))
     identity.load_state_dict(torch.load(args.identity, map_location="cpu"))
     identity.eval()
@@ -217,7 +224,7 @@ def main() -> None:
     icons: dict[str, np.ndarray | None] = {}
     print("Уточнение положения по имени: " + ("выключено" if args.no_refine else "включено"))
     print()
-    for frame in load_corpus(args.corpus):
+    for frame in load_corpus(corpus):
         pixels = bgra_to_rgb(frame.pixels)
         with torch.no_grad():
             found = decode_heatmap(detector(frame_to_tensor(frame.pixels)))[0]

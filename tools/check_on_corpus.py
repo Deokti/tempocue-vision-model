@@ -33,7 +33,13 @@ from tcvm.detector import (
     decode_heatmap,
     match_centers,
 )
-from tcvm.formats import LabeledRegion, ReplayFrame, bgra_to_rgb, load_corpus
+from tcvm.formats import (
+    LabeledRegion,
+    ReplayFrame,
+    bgra_to_rgb,
+    default_corpus_dir,
+    load_corpus,
+)
 from tcvm.matching import ICON_SIDE, INNER_RADIUS, circular_mask, find_best_match
 from tcvm.render import RenderParams, render_icon
 
@@ -45,9 +51,7 @@ ALIGN_RADIUS = 5
 # Ниже этого совпадения выравниванию нельзя верить: значок закрыт или смазан.
 ALIGN_TRUST = 0.8
 
-DEFAULT_CORPUS = Path(
-    r"C:\Users\deokn\.codex\worktrees\739a\PROJECT\tests\TempoCue.Vision.Tests\ReplayCorpus"
-)
+DEFAULT_CORPUS = None  # ищется при запуске: см. formats.default_corpus_dir
 
 
 def frame_to_tensor(pixels_bgra: np.ndarray) -> torch.Tensor:
@@ -114,7 +118,7 @@ def draw_result(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--weights", type=Path, required=True)
-    parser.add_argument("--corpus", type=Path, default=DEFAULT_CORPUS)
+    parser.add_argument("--corpus", type=Path, default=None)
     parser.add_argument("--threshold", type=float, default=PEAK_THRESHOLD)
     parser.add_argument("--out", type=Path, default=Path("out/corpus-check"))
     parser.add_argument(
@@ -123,6 +127,7 @@ def main() -> None:
         help="сверять с центрами, выправленными совмещением арта, а не с ручной разметкой",
     )
     args = parser.parse_args()
+    corpus = args.corpus or default_corpus_dir()
     args.out.mkdir(parents=True, exist_ok=True)
 
     model = CenterDetector()
@@ -134,7 +139,7 @@ def main() -> None:
     offsets: list[float] = []
     icons: dict[str, np.ndarray | None] = {}
     print("Истина: " + ("выправленные центры" if args.aligned else "ручная разметка"))
-    for frame in load_corpus(args.corpus):
+    for frame in load_corpus(corpus):
         regions = frame.labels.champions if frame.labels else ()
         truth = [
             aligned_center(frame, region, icons)

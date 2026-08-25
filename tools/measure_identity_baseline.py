@@ -27,13 +27,11 @@ from pathlib import Path
 import numpy as np
 
 from tcvm.cdragon import base_circle_bgra, patch_of
-from tcvm.formats import ReplayFrame, load_corpus
+from tcvm.formats import ReplayFrame, default_corpus_dir, load_corpus
 from tcvm.matching import ICON_SIDE, INNER_RADIUS, circular_mask, find_best_match
 from tcvm.render import RenderParams, render_icon
 
-DEFAULT_CORPUS = Path(
-    r"C:\Users\deokn\.codex\worktrees\739a\PROJECT\tests\TempoCue.Vision.Tests\ReplayCorpus"
-)
+DEFAULT_CORPUS = None  # ищется при запуске: см. formats.default_corpus_dir
 PATCH_VERSION = "16.16.1"
 NAIVE = RenderParams(1.0, ICON_SIDE, "box", "srgb", 0.0, "bilinear", 0.0, 0.0)
 INNER_MASK = circular_mask(ICON_SIDE, INNER_RADIUS)
@@ -93,8 +91,9 @@ def describe(values: list[float]) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--corpus", type=Path, default=DEFAULT_CORPUS)
+    parser.add_argument("--corpus", type=Path, default=None)
     args = parser.parse_args()
+    corpus = args.corpus or default_corpus_dir()
 
     patch = patch_of(PATCH_VERSION)
     icons: dict[str, np.ndarray | None] = {}
@@ -110,7 +109,7 @@ def main() -> None:
     winners: list[float] = []
     mistakes: list[tuple[str, str, str, float, float]] = []
 
-    for frame in load_corpus(args.corpus):
+    for frame in load_corpus(corpus):
         roster = [reference.champion_id for reference in frame.references]
         for region in frame.labels.champions if frame.labels else ():
             center = (region.x + region.width / 2, region.y + region.height / 2)

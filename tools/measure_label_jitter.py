@@ -26,13 +26,11 @@ from pathlib import Path
 import numpy as np
 
 from tcvm.cdragon import base_circle_bgra, patch_of
-from tcvm.formats import load_corpus
+from tcvm.formats import default_corpus_dir, load_corpus
 from tcvm.matching import ICON_SIDE, INNER_RADIUS, circular_mask, find_best_match
 from tcvm.render import RenderParams, render_icon
 
-DEFAULT_CORPUS = Path(
-    r"C:\Users\deokn\.codex\worktrees\739a\PROJECT\tests\TempoCue.Vision.Tests\ReplayCorpus"
-)
+DEFAULT_CORPUS = None  # ищется при запуске: см. formats.default_corpus_dir
 EXCLUSIONS_PATH = Path(__file__).resolve().parents[1] / "annotations" / "corpus-exclusions.json"
 PATCH_VERSION = "16.16.1"
 
@@ -61,8 +59,9 @@ def describe(values: list[float], unit: str = "px") -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--corpus", type=Path, default=DEFAULT_CORPUS)
+    parser.add_argument("--corpus", type=Path, default=None)
     args = parser.parse_args()
+    corpus = args.corpus or default_corpus_dir()
 
     patch = patch_of(PATCH_VERSION)
     excluded = load_exclusions()
@@ -72,7 +71,7 @@ def main() -> None:
     scores: list[float] = []
     skipped = 0
 
-    for frame in load_corpus(args.corpus):
+    for frame in load_corpus(corpus):
         for region in frame.labels.champions if frame.labels else ():
             champion = region.champion_id
             if (champion, frame.name) in excluded:

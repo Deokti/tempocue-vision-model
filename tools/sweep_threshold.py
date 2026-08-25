@@ -23,11 +23,9 @@ import torch
 from PIL import Image, ImageDraw
 
 from tcvm.detector import CenterDetector, decode_heatmap, match_centers
-from tcvm.formats import bgra_to_rgb, load_corpus
+from tcvm.formats import bgra_to_rgb, default_corpus_dir, load_corpus
 
-DEFAULT_CORPUS = Path(
-    r"C:\Users\deokn\.codex\worktrees\739a\PROJECT\tests\TempoCue.Vision.Tests\ReplayCorpus"
-)
+DEFAULT_CORPUS = None  # ищется при запуске: см. formats.default_corpus_dir
 THRESHOLDS = (0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
 
 
@@ -60,16 +58,17 @@ def save_curve(rows: list[tuple[float, float, float]], path: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--weights", type=Path, required=True)
-    parser.add_argument("--corpus", type=Path, default=DEFAULT_CORPUS)
+    parser.add_argument("--corpus", type=Path, default=None)
     parser.add_argument("--out", type=Path, default=Path("out/threshold-sweep"))
     args = parser.parse_args()
+    corpus = args.corpus or default_corpus_dir()
     args.out.mkdir(parents=True, exist_ok=True)
 
     model = CenterDetector()
     model.load_state_dict(torch.load(args.weights, map_location="cpu"))
     model.eval()
 
-    frames = load_corpus(args.corpus)
+    frames = load_corpus(corpus)
     logits_by_frame = []
     truths = []
     with torch.no_grad():

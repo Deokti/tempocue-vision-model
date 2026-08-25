@@ -19,7 +19,9 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -164,3 +166,38 @@ def augment_crops(
     factors = rng.uniform(*brightness, size=(len(crops), 1, 1, 1)).astype(np.float32)
     means = scaled.mean(axis=(1, 2, 3), keepdims=True)
     return np.clip((scaled - means) * factors + means * factors, 0.0, BYTE_SCALE)
+
+
+# Веса, обученные при другом входе, работают молча и отвечают чепухой: сеть
+# свёрточная и любой размер примет. Так уже случилось при подъёме входа с 32
+# до 64 — проверка показала 0 из 66 вместо 0,803, и понять причину по числам
+# было нельзя. Поэтому размер входа пишется рядом с весами и сверяется.
+SETUP_NAME = "setup.json"
+
+
+def write_setup(directory: Path, classes: int) -> None:
+    """Кладёт рядом с весами то, без чего их нельзя правильно применить."""
+    (directory / SETUP_NAME).write_text(
+        json.dumps(
+            {"inputSide": INPUT_SIDE, "canonicalCrop": CANONICAL_CROP, "classes": classes},
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
+def check_setup(weights: Path) -> None:
+    """Бросает, если веса обучены при другом входе сети."""
+    path = weights.parent / SETUP_NAME
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Рядом с весами нет {SETUP_NAME}: они обучены до появления проверки "
+            f"и, скорее всего, при входе 32. Переобучи — вход теперь {INPUT_SIDE}."
+        )
+    setup = json.loads(path.read_text(encoding="utf-8"))
+    if setup.get("inputSide") != INPUT_SIDE:
+        raise ValueError(
+            f"Веса обучены при входе {setup.get('inputSide')}, а сейчас {INPUT_SIDE}. "
+            "Сеть примет любой размер и будет отвечать чепухой — переобучи."
+        )

@@ -27,20 +27,19 @@ import numpy as np
 import torch
 
 from tcvm.cdragon import base_circle_bgra, patch_of
-from tcvm.formats import ReplayFrame, bgra_to_rgb, load_corpus
+from tcvm.formats import ReplayFrame, bgra_to_rgb, default_corpus_dir, load_corpus
 from tcvm.identity import (
     CANONICAL_CROP,
     NO_CHAMPION,
     IdentityNet,
     as_input,
+    check_setup,
     choose,
 )
 from tcvm.matching import ICON_SIDE, INNER_RADIUS, circular_mask, find_best_match
 from tcvm.render import RenderParams, render_icon
 
-DEFAULT_CORPUS = Path(
-    r"C:\Users\deokn\.codex\worktrees\739a\PROJECT\tests\TempoCue.Vision.Tests\ReplayCorpus"
-)
+DEFAULT_CORPUS = None  # ищется при запуске: см. formats.default_corpus_dir
 PATCH_VERSION = "16.16.1"
 NAIVE = RenderParams(1.0, ICON_SIDE, "box", "srgb", 0.0, "bilinear", 0.0, 0.0)
 INNER_MASK = circular_mask(ICON_SIDE, INNER_RADIUS)
@@ -187,12 +186,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--weights", type=Path, required=True)
     parser.add_argument("--vocabulary", type=Path, default=None)
-    parser.add_argument("--corpus", type=Path, default=DEFAULT_CORPUS)
+    parser.add_argument("--corpus", type=Path, default=None)
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()
+    corpus = args.corpus or default_corpus_dir()
 
     vocabulary_path = args.vocabulary or args.weights.parent / "vocabulary.json"
     vocabulary = json.loads(vocabulary_path.read_text(encoding="utf-8"))
+    check_setup(args.weights if hasattr(args, "weights") else args.identity)
     model = IdentityNet(len(vocabulary))
     model.load_state_dict(torch.load(args.weights, map_location="cpu"))
     model.eval()
@@ -204,7 +205,7 @@ def main() -> None:
 
     tally = Tally()
 
-    for frame in load_corpus(args.corpus):
+    for frame in load_corpus(corpus):
         examine(frame, model, vocabulary, (patch, icons, rng), tally)
 
     print()

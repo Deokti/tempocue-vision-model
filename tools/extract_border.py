@@ -20,13 +20,11 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from tcvm.formats import bgra_to_rgb, load_corpus
+from tcvm.formats import bgra_to_rgb, default_corpus_dir, load_corpus
 from tcvm.generator import CANONICAL_SIDE
 from tcvm.synthesis import MAP_PLACEMENT, map_rect
 
-DEFAULT_CORPUS = Path(
-    r"C:\Users\deokn\.codex\worktrees\739a\PROJECT\tests\TempoCue.Vision.Tests\ReplayCorpus"
-)
+DEFAULT_CORPUS = None  # ищется при запуске: см. formats.default_corpus_dir
 ANNOTATIONS = Path(__file__).resolve().parents[1] / "annotations"
 BORDER_PATH = ANNOTATIONS / "map-border.png"
 OPAQUE = 255
@@ -34,10 +32,11 @@ OPAQUE = 255
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--corpus", type=Path, default=DEFAULT_CORPUS)
+    parser.add_argument("--corpus", type=Path, default=None)
     args = parser.parse_args()
+    corpus = args.corpus or default_corpus_dir()
 
-    frames = load_corpus(args.corpus)
+    frames = load_corpus(corpus)
     stack = np.stack([bgra_to_rgb(frame.pixels).astype(np.float32) for frame in frames])
     median = np.median(stack, axis=0)
     spread = np.median(np.abs(stack - median), axis=0).mean(axis=2)

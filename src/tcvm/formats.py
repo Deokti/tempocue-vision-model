@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 import zipfile
 from dataclasses import dataclass
@@ -211,3 +212,32 @@ def load_corpus(directory: Path) -> list[ReplayFrame]:
 
 def load_sequences(directory: Path) -> list[ReplaySequence]:
     return [load_sequence(p) for p in sorted(directory.glob("*.tempocue-sequence"))]
+
+
+# Корпус живёт в репозитории приложения, а тот лежит по-разному на разных
+# машинах. Жёсткий путь в каждом инструменте ломался при первом же переезде,
+# поэтому папка ищется: сначала переменная окружения, потом обычные места
+# рядом с этим репозиторием.
+CORPUS_ENV = "TCVM_CORPUS"
+CORPUS_TAIL = Path("tests") / "TempoCue.Vision.Tests" / "ReplayCorpus"
+
+
+def default_corpus_dir() -> Path:
+    """Где лежит корпус на этой машине; бросает, если не нашёлся."""
+    named = os.environ.get(CORPUS_ENV)
+    if named:
+        return Path(named)
+
+    root = Path(__file__).resolve().parents[2].parent
+    candidates = [
+        root / "TempoCue" / CORPUS_TAIL,
+        root / "tempocue" / CORPUS_TAIL,
+        Path.home() / ".codex" / "worktrees" / "739a" / "PROJECT" / CORPUS_TAIL,
+    ]
+    for candidate in candidates:
+        if candidate.is_dir():
+            return candidate
+    raise FileNotFoundError(
+        "Корпус не найден. Укажи путь ключом --corpus или переменной "
+        f"{CORPUS_ENV}. Искали: " + "; ".join(str(c) for c in candidates)
+    )

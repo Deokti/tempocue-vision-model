@@ -33,6 +33,7 @@ from tcvm.identity import (
     build_vocabulary,
     choose,
     evaluate_choices,
+    write_setup,
 )
 
 VALIDATION_SHARE = 0.15
@@ -222,6 +223,7 @@ def main() -> None:
             torch.save(model.state_dict(), args.out / "best.pt")
 
     save_preview(model, folds["проверка"], vocabulary, device, args.out / "predictions.png")
+    write_setup(args.out, len(vocabulary))
     (args.out / "vocabulary.json").write_text(
         json.dumps(vocabulary, ensure_ascii=False), encoding="utf-8"
     )

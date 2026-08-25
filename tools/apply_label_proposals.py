@@ -31,9 +31,9 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-DEFAULT_CORPUS = Path(
-    r"C:\Users\deokn\.codex\worktrees\739a\PROJECT\tests\TempoCue.Vision.Tests\ReplayCorpus"
-)
+from tcvm.formats import default_corpus_dir
+
+DEFAULT_CORPUS = None  # ищется при запуске: см. formats.default_corpus_dir
 DEFAULT_PROPOSALS = Path("out/label-proposals/proposals.json")
 # Сторона коробки чемпиона в разметке корпуса — как во всех существующих метках.
 BOX_SIDE = 25
@@ -168,14 +168,15 @@ def apply_frame(document: dict, frame: dict) -> list[str]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--corpus", type=Path, default=DEFAULT_CORPUS)
+    parser.add_argument("--corpus", type=Path, default=None)
     parser.add_argument("--proposals", type=Path, default=DEFAULT_PROPOSALS)
     parser.add_argument("--apply", action="store_true", help="записать правки в файлы")
     args = parser.parse_args()
+    corpus = args.corpus or default_corpus_dir()
 
     payload = json.loads(args.proposals.read_text(encoding="utf-8"))
     print(f"Предложения: {args.proposals} (порог добавления {payload['addScore']})")
-    print(f"Корпус: {args.corpus}")
+    print(f"Корпус: {corpus}")
     print("Режим: " + ("ЗАПИСЬ" if args.apply else "показ, файлы не меняются"))
     print()
 
@@ -183,7 +184,7 @@ def main() -> None:
     for frame in payload["frames"]:
         if not frame["added"] and not frame["moved"]:
             continue
-        path = labels_path(args.corpus, frame["frame"])
+        path = labels_path(corpus, frame["frame"])
         if not path.exists():
             print(f"{frame['frame']}: файла разметки нет — {path.name}")
             continue

@@ -20,7 +20,7 @@ from PIL import Image
 
 from tcvm.cdragon import base_circle_bgra, patch_of
 from tcvm.ddragon import latest_version
-from tcvm.formats import bgra_to_rgb, load_frame
+from tcvm.formats import bgra_to_rgb, default_corpus_dir, load_frame
 from tcvm.matching import ICON_SIDE
 from tcvm.synthesis import (
     ALLY_RING_BGR,
@@ -43,9 +43,7 @@ from tcvm.synthesis import (
     visibility_mask,
 )
 
-DEFAULT_CORPUS = Path(
-    r"C:\Users\deokn\.codex\worktrees\739a\PROJECT\tests\TempoCue.Vision.Tests\ReplayCorpus"
-)
+DEFAULT_CORPUS = None  # ищется при запуске: см. formats.default_corpus_dir
 DEFAULT_MAP_DIR = Path(__file__).resolve().parents[1] / "data" / "cdragon"
 ANNOTATIONS = Path(__file__).resolve().parents[1] / "annotations"
 STRUCTURES_PATH = ANNOTATIONS / "map-structures.json"
@@ -109,16 +107,17 @@ def synthesize_like(frame, map_dir: Path, variant: str, patch: str) -> np.ndarra
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--corpus", type=Path, default=DEFAULT_CORPUS)
+    parser.add_argument("--corpus", type=Path, default=None)
     parser.add_argument("--map-dir", type=Path, default=DEFAULT_MAP_DIR)
     parser.add_argument("--frame", default="static-tower-as-champion-01")
     parser.add_argument("--variant", default="base_baron1")
     parser.add_argument("--out", type=Path, default=Path("out/synthetic-preview"))
     args = parser.parse_args()
+    corpus = args.corpus or default_corpus_dir()
     args.out.mkdir(parents=True, exist_ok=True)
 
     patch = patch_of(latest_version())
-    frame = load_frame(args.corpus / f"{args.frame}.tempocue-vision")
+    frame = load_frame(corpus / f"{args.frame}.tempocue-vision")
     synthetic = synthesize_like(frame, args.map_dir, args.variant, patch)
 
     side = CANONICAL_SIDE * 2

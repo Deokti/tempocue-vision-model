@@ -22,7 +22,7 @@ from PIL import Image, ImageDraw
 
 from tcvm.cdragon import patch_of
 from tcvm.ddragon import latest_version
-from tcvm.formats import bgra_to_rgb, load_frame
+from tcvm.formats import bgra_to_rgb, default_corpus_dir, load_frame
 from tcvm.matching import masked_ncc
 from tcvm.synthesis import (
     STRUCTURE_ALLY_BGR,
@@ -33,9 +33,7 @@ from tcvm.synthesis import (
     tinted_icon,
 )
 
-DEFAULT_CORPUS = Path(
-    r"C:\Users\deokn\.codex\worktrees\739a\PROJECT\tests\TempoCue.Vision.Tests\ReplayCorpus"
-)
+DEFAULT_CORPUS = None  # ищется при запуске: см. formats.default_corpus_dir
 DEFAULT_MAP_DIR = Path(__file__).resolve().parents[1] / "data" / "cdragon"
 # Порог найденной башни: лучший NCC настоящей башни против шаблона — 0,74
 # (иконка на кадре сидит на фоне и свечении, идеала не бывает); порог ниже с
@@ -80,16 +78,17 @@ def scan(frame_pixels: np.ndarray, template: np.ndarray, mask: np.ndarray) -> li
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--corpus", type=Path, default=DEFAULT_CORPUS)
+    parser.add_argument("--corpus", type=Path, default=None)
     parser.add_argument("--map-dir", type=Path, default=DEFAULT_MAP_DIR)
     parser.add_argument("--frame", default="static-tower-as-champion-01")
     parser.add_argument("--out", type=Path, default=Path("out/structures"))
     args = parser.parse_args()
+    corpus = args.corpus or default_corpus_dir()
     args.out.mkdir(parents=True, exist_ok=True)
 
     patch = patch_of(latest_version())
     icons_dir = args.map_dir / patch / "minimap-icons"
-    frame = load_frame(args.corpus / f"{args.frame}.tempocue-vision")
+    frame = load_frame(corpus / f"{args.frame}.tempocue-vision")
 
     overlay = Image.fromarray(bgra_to_rgb(frame.pixels), "RGB").resize(
         (640, 640), Image.NEAREST

@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.venv/Scripts/python.exe -m ruff check -q .)",
+      "Bash(.venv/Scripts/python.exe -m ruff format --check -q .)"
+    ]
+  }
+}

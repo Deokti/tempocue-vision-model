@@ -35,14 +35,12 @@ from PIL import Image, ImageDraw
 from torch.nn import functional as torch_functional
 
 from tcvm.cdragon import base_circle_bgra, patch_of
-from tcvm.formats import ReplayFrame, bgra_to_rgb, load_corpus
+from tcvm.formats import ReplayFrame, bgra_to_rgb, default_corpus_dir, load_corpus
 from tcvm.matching import ICON_SIDE, INNER_RADIUS, circular_mask
 from tcvm.render import RenderParams, render_icon
 from tcvm.synthesis import MAP_PLACEMENT, map_rect
 
-DEFAULT_CORPUS = Path(
-    r"C:\Users\deokn\.codex\worktrees\739a\PROJECT\tests\TempoCue.Vision.Tests\ReplayCorpus"
-)
+DEFAULT_CORPUS = None  # ищется при запуске: см. formats.default_corpus_dir
 PATCH_VERSION = "16.16.1"
 # Сторона канонического кадра приложения.
 CANONICAL_FRAME = 320
@@ -457,9 +455,10 @@ def _as_dict(proposal: Proposal) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--corpus", type=Path, default=DEFAULT_CORPUS)
+    parser.add_argument("--corpus", type=Path, default=None)
     parser.add_argument("--out", type=Path, default=Path("out/label-proposals"))
     args = parser.parse_args()
+    corpus = args.corpus or default_corpus_dir()
     (args.out / "frames").mkdir(parents=True, exist_ok=True)
 
     patch = patch_of(PATCH_VERSION)
@@ -468,7 +467,7 @@ def main() -> None:
     pixels_by_frame: dict[str, np.ndarray] = {}
 
     print("  кадр                                      есть  добавить  сдвинуть  отвергнуто")
-    for frame in load_corpus(args.corpus):
+    for frame in load_corpus(corpus):
         found = examine_frame(frame, patch, icons)
         all_found.append(found)
         pixels_by_frame[frame.name] = bgra_to_rgb(frame.pixels)

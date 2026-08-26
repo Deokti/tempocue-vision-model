@@ -189,12 +189,21 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--frames", type=int, default=2000, help="сколько кадров нарезать")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--version",
+        default=None,
+        help="версия Data Dragon; по умолчанию последняя. Указывать, когда"
+        " локальные ассеты отстают от живого патча",
+    )
     parser.add_argument("--out", type=Path, default=Path("out/crops"))
     parser.add_argument("--map-dir", type=Path, default=Path("data/cdragon"))
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
 
-    version = latest_version()
+    # Живой патч уходит вперёд раньше, чем скачиваются ассеты, и тогда
+    # генерация падает на первом же кадре. Ключ позволяет остаться на той
+    # версии, которая есть на диске.
+    version = args.version or latest_version()
     patch = patch_of(version)
     structures = json.loads(STRUCTURES_PATH.read_text(encoding="utf-8"))["structures"]
     map_objects = json.loads(OBJECTS_PATH.read_text(encoding="utf-8"))["objects"]

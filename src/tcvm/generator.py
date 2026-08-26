@@ -21,7 +21,7 @@
 нормализации приложения. Родные размеры 16-65 px — для будущего генератора
 вырезов вложения, не для кадров детектора.
 
-Пока не рандомизируются: пинги, свечение отзыва, смерть чемпиона,
+Пока не рандомизируются: пинги, смерть чемпиона,
 направленное размытие движения (пока изотропное гауссово).
 """
 
@@ -57,6 +57,7 @@ from .synthesis import (
     draw_camera_rect,
     draw_map_object,
     draw_minion_column,
+    draw_recall_glow,
     load_darkness_mask,
     load_map_border,
     load_map_layer,
@@ -140,6 +141,11 @@ MAP_OBJECT_VISIBLE_SHARE = (0.55, 0.95)
 # ставят реже обычных зелёных.
 WARD_COUNT_MAX = 8
 PINK_WARD_SHARE = 0.25
+# Доля чемпионов со свечением возврата. Возврат длится восемь секунд, а
+# средняя игра держит участника на карте много минут, так что доля мала.
+# Взята с запасом вверх: помеха стоит дорого (опознание падает с 1,00 до
+# 0,06), и лучше показать её сети чаще, чем она встречается.
+RECALL_PROBABILITY = 0.10
 
 
 @dataclass(frozen=True)
@@ -150,6 +156,10 @@ class PlacedChampion:
     ally: bool
     moving: bool
     blur_sigma: float
+    # Насколько отсчёт возврата близок к концу, от 0 до 1; None — не
+    # возвращается. Отдельное значение, а не флаг: кольцо за время отсчёта
+    # меняет и радиус, и цвет, и яркость.
+    recall_phase: float | None = None
 
 
 @dataclass(frozen=True)
@@ -333,6 +343,13 @@ def random_scene(
                 ally=order < visible_count / 2,
                 moving=moving,
                 blur_sigma=float(rng.uniform(0.4, BLUR_SIGMA_MAX)) if moving else 0.0,
+                # Возврат идёт стоя: канал рвётся от движения, поэтому
+                # свечение и размытие движения вместе не встречаются.
+                recall_phase=(
+                    float(rng.random())
+                    if not moving and rng.random() < RECALL_PROBABILITY
+                    else None
+                ),
             )
         )
 
@@ -396,7 +413,13 @@ def place_entities(rng: np.random.Generator, scene: Scene, walkable: np.ndarray)
         x, y = _sample_position(rng, walkable, placed)
         placed.append(
             PlacedChampion(
-                champion.champion_id, x, y, champion.ally, champion.moving, champion.blur_sigma
+                champion.champion_id,
+                x,
+                y,
+                champion.ally,
+                champion.moving,
+                champion.blur_sigma,
+                champion.recall_phase,
             )
         )
     columns = tuple(
@@ -563,6 +586,13 @@ def render_scene(
             geometry.at(champion.y),
             geometry.px(ICON_SIDE),
         )
+        if champion.recall_phase is not None:
+            draw_recall_glow(
+                canvas,
+                (geometry.at(champion.x), geometry.at(champion.y)),
+                geometry.px(ICON_SIDE),
+                champion.recall_phase,
+            )
         labels.append(
             {
                 "championId": champion.champion_id,

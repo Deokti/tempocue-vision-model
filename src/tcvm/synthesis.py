@@ -21,7 +21,7 @@ inhibitor, nexus): тёмная заливка со светлым контур�
 причиной, по которой судья доменов отличал синтетику (docs/generator.md).
 
 Константы измерены по кадрам корпуса; происхождение у каждой в комментарии.
-Пока не моделируются: пинги, свечение отзыва/телепорта, рамка интерфейса по
+Пока не моделируются: пинги, смерть чемпиона, рамка интерфейса по
 краю кадра, обрезка обзора стенами, канонические позиции построек (в превью
 постройки стоят только там, где размечены).
 """
@@ -107,6 +107,33 @@ ENEMY_RING_BGR = (50, 59, 203)
 # радиусы ~10,5–12,4 — согласуется с маской сверки (портрет до радиуса 10).
 RING_OUTER_FRAC = 0.496
 RING_THICKNESS_FRAC = 0.076
+
+# Свечение возврата на базу. Замер по записи seq-false-enemy-on-minions,
+# кадры 0–17: та же Жанна со свечением и без него в одной точке, разница
+# двух кадров даёт свечение начисто.
+#
+# Это **свет**, а не краска: он прибавляется к тому, что под ним. Первая
+# версия смешивала фон с белым цветом и давала нейтральное кольцо вместо
+# синего — цвет был взят по самому яркому пикселю, а он выбит в белое.
+# Правильная мерка — средний прирост по кольцевой полосе.
+#
+# Кольцо стоит сразу за краем значка и к концу отсчёта сползает внутрь:
+# пик радиуса 13,5 → 12,5 px при значке в 25 px. Прирост гаснет и синеет:
+# доли каналов B 1,00, G 0,80, R от 0,38 к 0,15.
+#
+# Полоса несимметрична, и это не мелочь: внутрь спад резкий, наружу пологий.
+# По полувысоте 1,1 px внутрь против 2,0 px наружу. Причина видна глазом —
+# значок закрывает свет изнутри, а наружу он растекается по фону.
+#
+# Моделируем полное кольцо; в игре оно бывает и дугой, но радиальный замер
+# этого не различает, а сети важна сама помеха у края значка.
+RECALL_PEAK_RADIUS_FRAC = (0.54, 0.50)
+RECALL_HALF_WIDTH_IN_FRAC = 0.044
+RECALL_HALF_WIDTH_OUT_FRAC = 0.080
+RECALL_GAIN_START_BGR = (140, 110, 45)
+RECALL_GAIN_END_BGR = (112, 96, 25)
+# Половина ширины по полувысоте в единицах сигмы.
+HALF_WIDTH_SIGMAS = 1.1774
 
 
 def load_map_layer(map_dir: Path, variant: str) -> np.ndarray:
@@ -412,6 +439,55 @@ def ringed_icon(icon_bgra: np.ndarray, ring_bgr: tuple[int, int, int]) -> np.nda
     result[ring_band, :3] = ring_bgr
     result[..., 3] = np.where(radius <= outer, 255, 0)
     return result
+
+
+def draw_recall_glow(
+    canvas_bgr: np.ndarray,
+    center_xy: tuple[float, float],
+    icon_side: int,
+    phase: float,
+) -> None:
+    """Кольцо возврата вокруг значка: яркая дуга сразу за краем портрета.
+
+    `phase` — насколько отсчёт близок к концу, от 0 до 1. К концу кольцо
+    подбирается к значку, синеет и гаснет: так это выглядит в игре, и так
+    измерено по записи.
+
+    Рисуется поверх уже посаженного значка и поверх фона: в игре это свет,
+    а не краска, и он ложится на всё, что под ним.
+    """
+    peak = float(np.interp(phase, (0.0, 1.0), RECALL_PEAK_RADIUS_FRAC)) * icon_side
+    sigma_in = RECALL_HALF_WIDTH_IN_FRAC * icon_side / HALF_WIDTH_SIGMAS
+    sigma_out = RECALL_HALF_WIDTH_OUT_FRAC * icon_side / HALF_WIDTH_SIGMAS
+    gain = np.array(
+        [
+            np.interp(phase, (0.0, 1.0), (first, last))
+            for first, last in zip(RECALL_GAIN_START_BGR, RECALL_GAIN_END_BGR, strict=True)
+        ]
+    )
+
+    # Область обрезается по кадру, а не отбрасывается целиком: значок у края
+    # карты иначе молча остался бы без свечения, и в обучении не встретился бы
+    # ни разу именно там, где значок и без того трудный.
+    reach = int(np.ceil(peak + 4 * sigma_out))
+    cx, cy = center_xy
+    height, width = canvas_bgr.shape[:2]
+    x0, y0 = max(0, round(cx) - reach), max(0, round(cy) - reach)
+    x1 = min(width, round(cx) + reach + 1)
+    y1 = min(height, round(cy) + reach + 1)
+    if x0 >= x1 or y0 >= y1:
+        return
+
+    yy, xx = np.mgrid[y0:y1, x0:x1]
+    radius = np.sqrt((yy - cy) ** 2 + (xx - cx) ** 2)
+    # Гауссов спад поперёк полосы: у измеренного кольца нет резких краёв,
+    # они смазаны тем же уменьшением, что и весь кадр.
+    offset = radius - peak
+    sigma = np.where(offset < 0, sigma_in, sigma_out)
+    weight = np.exp(-0.5 * (offset / sigma) ** 2)
+
+    region = canvas_bgr[y0:y1, x0:x1]
+    region[:] = np.clip(region + weight[..., None] * gain, 0, 255)
 
 
 def place_icon(

@@ -42,13 +42,22 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--count", type=int, default=16)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--version",
+        default=None,
+        help="версия Data Dragon; по умолчанию последняя. Указывать, когда"
+        " локальные ассеты отстают от живого патча",
+    )
     parser.add_argument("--roster", type=int, default=0, help="0 — все чемпионы патча")
     parser.add_argument("--map-dir", type=Path, default=DEFAULT_MAP_DIR)
     parser.add_argument("--out", type=Path, default=Path("out/dataset"))
     args = parser.parse_args()
     (args.out / "frames").mkdir(parents=True, exist_ok=True)
 
-    version = latest_version()
+    # Живой патч уходит вперёд раньше, чем скачиваются ассеты, и тогда
+    # генерация падает на первом же кадре. Ключ позволяет остаться на той
+    # версии, которая есть на диске.
+    version = args.version or latest_version()
     patch = patch_of(version)
     roster = champion_ids(version)
     if args.roster:

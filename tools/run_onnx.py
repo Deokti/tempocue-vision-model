@@ -145,12 +145,24 @@ def crop_at(pixels_bgra: np.ndarray, cx: float, cy: float, side: int) -> np.ndar
 
 
 def name_crops(
-    scores: np.ndarray, vocabulary: list[str], roster: list[str], reject_index: int
+    scores: np.ndarray,
+    vocabulary: list[str],
+    roster: list[str],
+    reject_index: int,
+    floor: float = 0.0,
 ) -> list[tuple[str, float]]:
     """Баллы по классам → имя и уверенность, выбор только из состава матча.
 
     Прочие классы не подавляются, а просто не рассматриваются: это ровно то,
     что даёт знание состава из API.
+
+    Но у знания состава есть обратная сторона, и она стоила нам пункта приёмки.
+    Если сеть уверенно видит чемпиона, которого в матче нет, то у всех
+    разрешённых классов доли ничтожны, и выбирается случайный из них. Живой
+    пример: Naafiri 0,587, Anivia 0,250, отказ 0,000 — а подтверждается Janna
+    с долей 0,030, потому что она единственная из состава в этом списке.
+
+    Порог `floor` закрывает эту дыру: доля ниже него означает отказ.
     """
     wanted = {name.lower() for name in roster}
     allowed = [
@@ -161,6 +173,8 @@ def name_crops(
     chosen = []
     for row in scores:
         best = max(allowed, key=lambda index: row[index])
+        if row[best] < floor:
+            best = reject_index
         chosen.append((vocabulary[best], float(row[best])))
     return chosen
 
@@ -199,7 +213,11 @@ class Tally:
 
 
 def recognise(
-    frame_bgra: np.ndarray, roster: list[str], model: Model, threshold: float
+    frame_bgra: np.ndarray,
+    roster: list[str],
+    model: Model,
+    threshold: float,
+    floor: float = 0.0,
 ) -> list[tuple[float, float, str]]:
     """Кадр и состав матча → чемпионы с координатами. Весь разбор целиком."""
     probabilities = model.detector.run(None, {model.detector_input: frame_bgra[None]})[0]
@@ -213,7 +231,7 @@ def recognise(
         return []
 
     scores = model.identity.run(None, {model.identity_input: np.stack(crops)})[0]
-    chosen = name_crops(scores, model.vocabulary, roster, model.setup["rejectIndex"])
+    chosen = name_crops(scores, model.vocabulary, roster, model.setup["rejectIndex"], floor)
     named = [(x, y, name, share) for (x, y), (name, share) in zip(places, chosen, strict=True)]
     return keep_one_per_champion(named, model.setup["rejectName"])
 
@@ -256,6 +274,12 @@ def main() -> None:
     parser.add_argument("--corpus", type=Path, default=None)
     parser.add_argument("--tolerance", type=float, default=None)
     parser.add_argument("--threshold", type=float, default=None)
+    parser.add_argument(
+        "--confidence",
+        type=float,
+        default=0.0,
+        help="ниже этой доли по выбранному имени вырез объявляется отказом",
+    )
     args = parser.parse_args()
     corpus = args.corpus or default_corpus_dir()
 
@@ -266,13 +290,16 @@ def main() -> None:
 
     print(f"Модель: {args.model} ({len(model.vocabulary)} классов)")
     print(f"Корпус: {corpus}")
-    print(f"Порог вершины {threshold}, допуск совпадения {tolerance} px")
+    print(
+        f"Порог вершины {threshold}, уверенности {args.confidence}, "
+        f"допуск совпадения {tolerance} px"
+    )
     print()
 
     tally = Tally()
     for frame in load_corpus(corpus):
         roster = [reference.champion_id for reference in frame.references]
-        decided = recognise(frame.pixels, roster, model, threshold)
+        decided = recognise(frame.pixels, roster, model, threshold, args.confidence)
         truth = [
             (region.x + region.width / 2, region.y + region.height / 2, region.champion_id)
             for region in (frame.labels.champions if frame.labels else ())

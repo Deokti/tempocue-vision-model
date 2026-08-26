@@ -224,8 +224,13 @@ def score_frame(
     reject: str,
     tolerance: float,
     tally: Tally,
-) -> None:
-    """Сводит найденное с разметкой. Отказ в сопоставлении не участвует."""
+) -> tuple[int, list[str]]:
+    """Сводит найденное с разметкой. Отказ в сопоставлении не участвует.
+
+    Возвращает взятых и поимённо непойманных: сверять порт по суммам мало,
+    расходиться он может при одинаковом итоге.
+    """
+    before = tally.taken
     free = list(range(len(truth)))
     for x, y, name in decided:
         if name == reject:
@@ -242,6 +247,7 @@ def score_frame(
             tally.wrong += 1
     tally.labelled += len(truth)
     tally.missed += len(free)
+    return tally.taken - before, sorted(truth[index][2] for index in free)
 
 
 def main() -> None:
@@ -271,7 +277,11 @@ def main() -> None:
             (region.x + region.width / 2, region.y + region.height / 2, region.champion_id)
             for region in (frame.labels.champions if frame.labels else ())
         ]
-        score_frame(decided, truth, setup["rejectName"], tolerance, tally)
+        taken_here, lost = score_frame(decided, truth, setup["rejectName"], tolerance, tally)
+        print(
+            f"  {frame.name[:44]:44} взято {taken_here:2d} из {len(truth):2d}"
+            + (f"   не поймано: {', '.join(lost)}" if lost else "")
+        )
 
     taken, wrong, missed, false, labelled = (
         tally.taken,

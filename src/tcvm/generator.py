@@ -602,6 +602,9 @@ def render_scene(
                 "frameY": round(geometry.at(champion.y), 2),
                 "affiliation": "Ally" if champion.ally else "Enemy",
                 "moving": champion.moving,
+                # Нужно нарезчику вырезов: вокруг светящегося значка надо
+                # брать отрицательные примеры на самом кольце.
+                "recallPhase": champion.recall_phase,
             }
         )
 

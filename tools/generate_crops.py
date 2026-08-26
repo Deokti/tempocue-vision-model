@@ -39,6 +39,7 @@ from tcvm.generator import (
     walkable_mask,
 )
 from tcvm.identity import CANONICAL_CROP, INPUT_SIDE
+from tcvm.matching import ICON_SIDE
 from tcvm.synthesis import Geometry
 
 ANNOTATIONS = Path(__file__).resolve().parents[1] / "annotations"
@@ -62,6 +63,17 @@ NEGATIVE_CLEARANCE = 16.0
 HARD_NEGATIVE_SHARE = 0.5
 # Сколько отрицательных примеров приходится на одного чемпиона.
 NEGATIVES_PER_CHAMPION = 0.5
+# Отрицательные примеры на самом кольце возврата. Без них сеть, обученная
+# видеть чемпиона сквозь свечение, начинает видеть его и **на кольце**: замер
+# по корпусу приёмки дал двух фантомов на одном кольце вокруг Zaahen.
+#
+# Обычные отрицательные сюда не попадают никогда: они берутся не ближе
+# NEGATIVE_CLEARANCE от любого чемпиона, а кольцо лежит как раз внутри этого
+# отступа. Значит такие примеры надо ставить нарочно.
+RING_NEGATIVES_PER_RECALL = 2
+# Расстояние от центра значка в долях его стороны: от кольца до края
+# свечения. Замер кольца — в src/tcvm/synthesis.py.
+RING_NEGATIVE_RADIUS = (0.55, 0.95)
 # Метка отрицательного примера: пусто, потому что чемпиона в вырезе нет.
 NO_CHAMPION = ""
 # Как часто печатать ход работы.
@@ -133,6 +145,34 @@ def negative_spots(
     return spots
 
 
+def recall_ring_spots(
+    rng: np.random.Generator,
+    champions: list[dict],
+    scale: float,
+) -> list[tuple[int, int]]:
+    """Точки на кольцах возврата: свечение есть, чемпиона в вырезе нет."""
+    icon_side = ICON_SIDE * scale
+    centers = [(item["frameX"], item["frameY"]) for item in champions]
+    spots: list[tuple[int, int]] = []
+    for item in champions:
+        if item.get("recallPhase") is None:
+            continue
+        for _ in range(RING_NEGATIVES_PER_RECALL):
+            angle = float(rng.uniform(0, 2 * np.pi))
+            reach = float(rng.uniform(*RING_NEGATIVE_RADIUS)) * icon_side
+            x = item["frameX"] + reach * np.cos(angle)
+            y = item["frameY"] + reach * np.sin(angle)
+            # Рядом может стоять другой чемпион: тогда вырез не отрицательный.
+            if any(
+                np.hypot(x - cx, y - cy) < NEGATIVE_CLEARANCE * scale
+                for cx, cy in centers
+                if (cx, cy) != (item["frameX"], item["frameY"])
+            ):
+                continue
+            spots.append((round(x), round(y)))
+    return spots
+
+
 def harvest(
     frame: np.ndarray,
     metadata: dict,
@@ -169,7 +209,9 @@ def harvest(
         )
 
     wanted = round(len(metadata["champions"]) * NEGATIVES_PER_CHAMPION)
-    for x, y in negative_spots(rng, assets, FrameLayout(scale, walkable), centers, wanted):
+    spots = negative_spots(rng, assets, FrameLayout(scale, walkable), centers, wanted)
+    spots += recall_ring_spots(rng, metadata["champions"], scale)
+    for x, y in spots:
         piece = cut(frame, x, y, crop_side)
         if piece is None:
             continue

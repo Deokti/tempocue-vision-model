@@ -141,7 +141,12 @@ def name_detections(
         with torch.no_grad():
             logits = identity(as_input(torch.from_numpy(piece[None].copy())))
         name = choose(logits, vocabulary, roster)[0]
-        confidence = float(torch.softmax(logits, dim=1).max())
+        # Уверенность именно в выбранном имени, а не наибольшая по всем
+        # классам. Прежде бралась вторая, и при отсеве дубликатов сравнивались
+        # доли разных классов: побеждало срабатывание, уверенное в чемпионе,
+        # которого в составе матча нет.
+        shares = torch.softmax(logits, dim=1)[0]
+        confidence = float(shares[vocabulary.index(name)])
         scored.append((x, y, name, confidence))
 
     if not ONE_PER_CHAMPION:
@@ -167,7 +172,13 @@ def score_frame(
     tally: Tally,
     tolerance: float = MATCH_DISTANCE,
 ) -> None:
-    """Сводит найденное с разметкой: взятые, перепутанные, пропущенные, ложные."""
+    """Сводит найденное с разметкой: взятые, перепутанные, пропущенные, ложные.
+
+    Отказ в сопоставлении не участвует вовсе. Прежде участвовал, и это была
+    ошибка измерения: отказ забирал метку у стоящего рядом верного
+    срабатывания, и верное после этого числилось ложным. Отказ означает
+    «модель не взялась назвать это место» — чемпион там просто пропущен.
+    """
     truth = [
         (region.x + region.width / 2, region.y + region.height / 2, region.champion_id)
         for region in (frame.labels.champions if frame.labels else ())
@@ -176,6 +187,8 @@ def score_frame(
     taken = wrong = false = 0
 
     for x, y, name in named:
+        if name == NO_CHAMPION:
+            continue
         distances = [(np.hypot(x - truth[i][0], y - truth[i][1]), i) for i in free]
         best = min(distances) if distances else (999.0, -1)
         if best[0] <= tolerance:
@@ -184,7 +197,7 @@ def score_frame(
                 taken += 1
             else:
                 wrong += 1
-        elif name != NO_CHAMPION:
+        else:
             false += 1
 
     tally.taken += taken
